@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Party Games — Menu</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b1120;
+    --panel: #0f172a;
+    --panel-2: #111827;
+    --line: #1e293b;
+    --text: #e8edf6;
+    --muted: #9fb0c7;
+    --accent: #38bdf8;
+    --accent-ink: #04121c;
+    --ready: #4ade80;
+    --soon: #fbbf24;
+    --focus: #ffffff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 800px at 50% -15%, #1b2740, var(--bg));
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+    padding: clamp(1rem, 4vw, 3rem);
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+
+  /* --- accessibility helpers --- */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .skip-link {
+    position: absolute; left: 0.5rem; top: 0.5rem; transform: translateY(-150%);
+    background: var(--accent); color: var(--accent-ink); font-weight: 700;
+    padding: 0.6rem 1rem; border-radius: 0.5rem; z-index: 10; transition: transform 0.15s;
+  }
+  .skip-link:focus { transform: translateY(0); }
+
+  :where(a, button, [tabindex]):focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+    border-radius: 0.4rem;
+  }
+
+  /* --- header --- */
+  header { margin-bottom: 2rem; }
+  h1 { font-size: clamp(2rem, 6vw, 3.25rem); letter-spacing: -0.02em; }
+  h1 .dot { color: var(--accent); }
+  .lede { color: var(--muted); font-size: clamp(1rem, 2.5vw, 1.2rem); margin-top: 0.35rem; }
+
+  .layout { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+  @media (min-width: 820px) { .layout { grid-template-columns: 1fr 20rem; align-items: start; } }
+
+  h2 { font-size: 1.15rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.9rem; }
+
+  /* --- resume banner --- */
+  .resume {
+    display: none; align-items: center; gap: 1rem; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    border-radius: 0.7rem; padding: 0.85rem 1.1rem; margin-bottom: 1.5rem;
+  }
+  .resume.show { display: flex; }
+  .resume a {
+    margin-left: auto; background: var(--accent); color: var(--accent-ink);
+    font-weight: 700; text-decoration: none; padding: 0.5rem 0.9rem; border-radius: 0.5rem;
+  }
+
+  /* --- game list --- */
+  ul.games { list-style: none; display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 560px) { ul.games { grid-template-columns: 1fr 1fr; } }
+
+  .game {
+    width: 100%; text-align: left; cursor: pointer;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 1rem;
+    padding: 1.15rem 1.25rem; min-height: 44px;
+    display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem;
+    align-items: start;
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+    font: inherit;
+  }
+  .game:hover { border-color: #334155; }
+  .game:not([aria-disabled="true"]):hover { transform: translateY(-2px); background: #13203a; }
+  .game[aria-disabled="true"] { cursor: not-allowed; opacity: 0.85; background: #0c1424; }
+
+  .game .emoji { grid-row: 1 / span 3; font-size: 2rem; line-height: 1; }
+  .game .name { font-size: 1.25rem; font-weight: 700; }
+  .game .tagline { color: var(--muted); font-size: 0.95rem; }
+  .game .meta { color: var(--muted); font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; margin-top: 0.15rem; }
+
+  .badge {
+    font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 0.15rem 0.5rem; border-radius: 999px; border: 1px solid currentColor;
+  }
+  .badge.ready { color: var(--ready); }
+  .badge.soon { color: var(--soon); }
+
+  /* --- join panel --- */
+  .join {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 1rem;
+    padding: 1.25rem; text-align: center;
+  }
+  .join .label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; }
+  .join .url { font-size: 1.15rem; font-weight: 700; color: var(--soon); margin: 0.3rem 0 0.9rem; word-break: break-all; }
+  .join img.qr {
+    width: min(220px, 60vw); height: auto; background: #fff; padding: 0.6rem;
+    border-radius: 0.6rem; image-rendering: pixelated;
+  }
+  .join .count { margin-top: 0.9rem; color: var(--muted); font-size: 0.9rem; }
+
+  footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.85rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+    .game:hover { transform: none; }
+  }
+</style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to game list</a>
+  <div class="wrap">
+    <header>
+      <h1>Party Games<span class="dot">.</span></h1>
+      <p class="lede">Pick a game on this screen. Players join from their phones and use them as controllers.</p>
+    </header>
+
+    <div class="resume" id="resume" role="region" aria-label="Game in progress">
+      <span id="resume-text"></span>
+      <a href="/host" id="resume-link">Return to game</a>
+    </div>
+
+    <div class="layout">
+      <main id="main">
+        <h2 id="games-heading">Choose a game</h2>
+        <ul class="games" role="list" aria-labelledby="games-heading" id="games">
+          <li>Loading games…</li>
+        </ul>
+        <noscript><p>This screen needs JavaScript enabled.</p></noscript>
+      </main>
+
+      <aside class="join" aria-labelledby="join-heading">
+        <h2 id="join-heading" class="label" style="margin-bottom:.5rem">Players join at</h2>
+        <p class="url" id="join-url">…</p>
+        <img class="qr" id="qr" src="/phoneQR.png" alt="QR code linking to the player controller page">
+        <p class="count" id="count" aria-live="polite">No players connected yet</p>
+      </aside>
+    </div>
+
+    <footer>
+      Runs entirely on this laptop over your local WiFi. No accounts, no internet.
+    </footer>
+  </div>
+
+  <div class="sr-only" role="status" aria-live="polite" id="announce"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const announce = (msg) => { $("announce").textContent = ""; setTimeout(() => $("announce").textContent = msg, 30); };
+
+// --- build the game list ---
+async function loadGames() {
+  let games;
+  try {
+    games = (await (await fetch("/games")).json()).games;
+  } catch (e) {
+    $("games").innerHTML = '<li>Could not load the game list. Refresh the page.</li>';
+    return;
+  }
+  const list = $("games");
+  list.innerHTML = "";
+  for (const g of games) {
+    const ready = g.status === "ready";
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "game";
+    btn.dataset.id = g.id;
+    if (!ready) btn.setAttribute("aria-disabled", "true");
+    btn.setAttribute("aria-label",
+      `${g.name}. ${g.tagline} ${g.players}. ${ready ? "Available — activate to start this game." : "Coming soon, not yet playable."}`);
+    btn.innerHTML = `
+      <span class="emoji" aria-hidden="true">${g.emoji}</span>
+      <span class="name">${escapeHtml(g.name)}</span>
+      <span class="tagline">${escapeHtml(g.tagline)}</span>
+      <span class="meta">
+        <span class="badge ${ready ? "ready" : "soon"}">${ready ? "Ready" : "Coming soon"}</span>
+        <span>${escapeHtml(g.players)}</span>
+      </span>`;
+    btn.addEventListener("click", () => choose(g, ready));
+    li.appendChild(btn);
+    list.appendChild(li);
+  }
+}
+
+async function choose(g, ready) {
+  if (!ready) {
+    announce(`${g.name} is coming soon and can't be started yet.`);
+    return;
+  }
+  announce(`Starting ${g.name}…`);
+  try {
+    await fetch("/select", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game: g.id })
+    });
+    location.href = "/host";
+  } catch (e) {
+    announce(`Could not start ${g.name}. Try again.`);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+// --- join address + live QR (updates if the laptop changes networks) ---
+let shownIp = null;
+async function refreshAddress() {
+  try {
+    const w = await (await fetch("/whoami", { cache: "no-store" })).json();
+    $("join-url").textContent = w.playUrl.replace(/^https?:\/\//, "");
+    if (shownIp !== null && w.ip !== shownIp) {
+      $("qr").src = "/phoneQR.png?ip=" + encodeURIComponent(w.ip);
+    }
+    shownIp = w.ip;
+  } catch (e) {}
+}
+
+// --- player count + "game already running" banner ---
+let lastCount = null;
+async function refreshState() {
+  try {
+    const s = await (await fetch("/state", { cache: "no-store" })).json();
+    const n = s.players.length;
+    if (n !== lastCount) {
+      lastCount = n;
+      $("count").textContent = n === 0
+        ? "No players connected yet"
+        : `${n} player${n === 1 ? "" : "s"} connected`;
+    }
+    const resume = $("resume");
+    if (s.game) {
+      $("resume-text").textContent = `A game is already running.`;
+      resume.classList.add("show");
+    } else {
+      resume.classList.remove("show");
+    }
+  } catch (e) {}
+}
+
+loadGames();
+refreshAddress();
+refreshState();
+setInterval(refreshAddress, 10000);
+setInterval(refreshState, 2000);
+</script>
+</body>
+</html>

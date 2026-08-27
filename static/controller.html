@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Controller — Party Games</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overscroll-behavior: none; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0b1120; color: #e2e8f0;
+    display: flex; flex-direction: column; align-items: center;
+    padding: env(safe-area-inset-top) 1rem env(safe-area-inset-bottom);
+    user-select: none; -webkit-user-select: none;
+  }
+  h1 { margin-top: 1.5rem; font-size: 1.75rem; letter-spacing: -0.02em; }
+  h1 span { color: #38bdf8; }
+
+  /* join screen */
+  .join { margin-top: auto; margin-bottom: auto; width: 100%; max-width: 360px; text-align: center; }
+  .join input {
+    width: 100%; font-size: 1.25rem; padding: 0.9rem 1rem; border-radius: 0.8rem;
+    border: 1px solid #334155; background: #111827; color: #e2e8f0; text-align: center;
+  }
+  .join button, .act {
+    width: 100%; margin-top: 1rem; font-size: 1.15rem; font-weight: 700;
+    padding: 0.9rem 1rem; border-radius: 0.8rem; border: 0; background: #38bdf8; color: #0b1120;
+  }
+  .err { color: #f87171; margin-top: 0.75rem; min-height: 1.2em; font-size: 0.95rem; }
+
+  /* play screen */
+  #game { display: none; width: 100%; max-width: 460px; flex: 1; flex-direction: column; }
+  #game.on { display: flex; }
+  .me { margin-top: 1rem; text-align: center; }
+  .me .who { font-size: 1.5rem; font-weight: 800; }
+  .me .status { color: #94a3b8; margin-top: 0.25rem; min-height: 1.4em; }
+  .progress { height: 0.9rem; margin-top: 0.75rem; background: #1e293b; border-radius: 999px; overflow: hidden; }
+  .progress > div { height: 100%; width: 0; transition: width 0.1s linear; }
+
+  .tap {
+    flex: 1; margin: 1.5rem 0; width: 100%;
+    border-radius: 1.5rem; border: 0;
+    font-size: 3rem; font-weight: 900; letter-spacing: 0.05em;
+    color: #0b1120;
+    box-shadow: inset 0 -8px 0 rgba(0,0,0,0.25);
+    transition: transform 0.05s ease, filter 0.05s ease;
+    touch-action: manipulation;
+  }
+  .tap:active { transform: scale(0.97); filter: brightness(1.15); }
+  .tap:disabled { filter: grayscale(0.6) brightness(0.6); }
+
+  .act.secondary { background: #1e293b; color: #e2e8f0; }
+
+  #waiting { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 0.75rem; padding: 2rem 1rem; }
+  #waiting[hidden] { display: none; }
+  .wait-badge { font-size: 1.6rem; font-weight: 800; color: #4ade80; }
+  .wait-sub { color: #94a3b8; max-width: 18rem; }
+
+  :where(button, input, [tabindex]):focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+  <h1>Party<span>Games</span></h1>
+
+  <div class="join" id="join">
+    <input id="name" type="text" placeholder="Your name" autocomplete="off"
+           autocapitalize="words" maxlength="14" enterkeyhint="go">
+    <button id="join-btn">Join game</button>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="waiting" hidden>
+    <p class="wait-badge" id="wait-who">You're in!</p>
+    <p class="wait-sub">Waiting for the host to choose a game on the big screen…</p>
+  </div>
+
+  <div id="game">
+    <div class="me">
+      <div class="who" id="who">–</div>
+      <div class="status" id="status" role="status" aria-live="polite">Waiting…</div>
+      <div class="progress"><div id="pbar"></div></div>
+    </div>
+
+    <button class="tap" id="tap" disabled>TAP</button>
+
+    <button class="act" id="start">Start race</button>
+    <button class="act secondary" id="reset">Back to lobby</button>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let pid = null, color = "#38bdf8", goal = 40, phase = "lobby", myTaps = 0;
+let myName = "", currentGame = undefined;
+
+// ---- joining ----
+async function join() {
+  const name = $("name").value.trim();
+  $("err").textContent = "";
+  try {
+    const r = await fetch("/join", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    const d = await r.json();
+    pid = d.pid; color = d.color; goal = d.goal;
+    myName = name || ("Player " + pid);
+    $("join").style.display = "none";
+    $("who").textContent = myName;
+    $("who").style.color = color;
+    $("wait-who").textContent = myName + " — you're in!";
+    $("tap").style.background = color;
+    $("waiting").hidden = false;   // default until the first state poll
+    startLoops();
+  } catch (e) {
+    $("err").textContent = "Could not reach the game. Same WiFi as the laptop?";
+  }
+}
+
+// show the waiting screen or the Tap Race controls depending on the host's pick
+function setView(game) {
+  if (game === currentGame) return;
+  currentGame = game;
+  const playing = game === "tap-race";
+  $("game").classList.toggle("on", playing);
+  $("waiting").hidden = playing;
+}
+$("join-btn").addEventListener("click", join);
+$("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
+
+// ---- sending input ----
+function send(action) {
+  return fetch("/input", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pid, action })
+  }).then(r => r.json()).catch(() => ({}));
+}
+
+// buffer taps so a fast masher sends ~1 request per animation frame, not 1 per tap
+let pending = 0;
+function flushTaps() {
+  if (pending > 0 && phase === "playing") {
+    const n = pending; pending = 0;
+    for (let i = 0; i < n; i++) send("tap");
+  }
+  requestAnimationFrame(flushTaps);
+}
+
+function onTap(e) {
+  e.preventDefault();
+  if (phase !== "playing") return;
+  pending++;
+  myTaps++;
+  paint();
+  if (navigator.vibrate) navigator.vibrate(8);
+}
+$("tap").addEventListener("touchstart", onTap, { passive: false });
+$("tap").addEventListener("mousedown", onTap);   // works on a laptop too
+
+$("start").addEventListener("click", () => send("start"));
+$("reset").addEventListener("click", () => send("reset"));
+
+// ---- keep-alive ping + state polling ----
+function startLoops() {
+  requestAnimationFrame(flushTaps);
+  setInterval(() => send("ping"), 4000);
+  pollState();
+}
+async function pollState() {
+  try {
+    const s = await (await fetch("/state")).json();
+    const wasPlaying = phase === "playing";
+    phase = s.phase; goal = s.goal;
+    const me = s.players.find(p => p.pid === pid);
+    if (!me && pid) { location.reload(); return; }
+
+    setView(s.game);
+    if (s.game !== "tap-race") { setTimeout(pollState, 500); return; }
+
+    if (phase === "playing") {
+      // A fresh race just started, or the server reset our count: trust the
+      // server and drop leftover optimistic taps from the last game. A small
+      // gap (server a few behind our local count) is just in-flight taps —
+      // keep the optimistic number so mid-race tapping stays responsive.
+      if (!wasPlaying || me.taps < myTaps - 3) { myTaps = me.taps; pending = 0; }
+      else myTaps = Math.max(myTaps, me.taps);
+    } else {
+      myTaps = me ? me.taps : 0;
+      pending = 0;
+    }
+    paint(s);
+  } catch (e) {}
+  setTimeout(pollState, 500);
+}
+
+function paint(s) {
+  const tap = $("tap");
+  tap.disabled = phase !== "playing";
+  const pct = Math.min(100, (myTaps / goal) * 100);
+  $("pbar").style.width = pct + "%";
+  $("pbar").style.background = color;
+
+  if (phase === "lobby") {
+    $("status").textContent = "In the lobby — press Start when everyone's in";
+    tap.textContent = "WAIT";
+  } else if (phase === "playing") {
+    $("status").textContent = myTaps + " / " + goal + "  —  GO!";
+    tap.textContent = "TAP!";
+  } else if (phase === "over") {
+    const win = s && s.winner ? s.winner : null;
+    const iWon = s && s.winnerPid === pid;
+    $("status").textContent = iWon ? "🏆 You won!" : (win ? win + " won" : "Race over");
+    tap.textContent = iWon ? "🏆" : "DONE";
+  }
+}
+</script>
+</body>
+</html>
