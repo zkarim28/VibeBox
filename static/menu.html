@@ -20,6 +20,7 @@
     --focus: #ffffff;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: radial-gradient(1200px 800px at 50% -15%, #1b2740, var(--bg));
@@ -113,6 +114,24 @@
     border-radius: 0.6rem; image-rendering: pixelated;
   }
   .join .count { margin-top: 0.9rem; color: var(--muted); font-size: 0.9rem; }
+  .codechip {
+    margin: 0.2rem 0 0.9rem; color: var(--muted); font-size: 0.9rem;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .codechip b {
+    color: var(--text); font-size: 1.4rem; letter-spacing: 0.25em;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 0.5rem; padding: 0.15rem 0.6rem; margin-left: 0.4rem;
+  }
+
+  #lock {
+    position: fixed; inset: 0; background: var(--bg); z-index: 50;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 2rem;
+  }
+  #lock h1 { margin: 0.75rem 0 0.5rem; }
+  #lock p { color: var(--muted); max-width: 30rem; }
+  #lock code { background: var(--panel); padding: 0.1rem 0.4rem; border-radius: 0.3rem; }
 
   footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.85rem; }
 
@@ -147,14 +166,24 @@
       <aside class="join" aria-labelledby="join-heading">
         <h2 id="join-heading" class="label" style="margin-bottom:.5rem">Players join at</h2>
         <p class="url" id="join-url">…</p>
+        <p class="codechip">Room code <b id="join-code">····</b></p>
         <img class="qr" id="qr" src="/phoneQR.png" alt="QR code linking to the player controller page">
         <p class="count" id="count" aria-live="polite">No players connected yet</p>
       </aside>
     </div>
 
-    <footer>
-      Runs entirely on this laptop over your local WiFi. No accounts, no internet.
+    <footer id="footer">
+      Runs on this laptop over your local WiFi. No accounts.
     </footer>
+  </div>
+
+  <div id="lock" hidden>
+    <div>
+      <div style="font-size:3rem" aria-hidden="true">🔒</div>
+      <h1>Host screen locked</h1>
+      <p>Open the host link printed in the terminal where you started
+      <code>python3 server.py</code> — that unlocks this screen for this browser.</p>
+    </div>
   </div>
 
   <div class="sr-only" role="status" aria-live="polite" id="announce"></div>
@@ -222,15 +251,19 @@ function escapeHtml(s) {
 }
 
 // --- join address + live QR (updates if the laptop changes networks) ---
-let shownIp = null;
+let shownUrl = null;
 async function refreshAddress() {
   try {
     const w = await (await fetch("/whoami", { cache: "no-store" })).json();
-    $("join-url").textContent = w.playUrl.replace(/^https?:\/\//, "");
-    if (shownIp !== null && w.ip !== shownIp) {
-      $("qr").src = "/phoneQR.png?ip=" + encodeURIComponent(w.ip);
+    $("join-url").textContent = w.playUrl.replace(/^https?:\/\//, "").replace(/\?.*$/, "");
+    $("join-code").textContent = w.code;
+    $("footer").textContent = w.public
+      ? "Public mode: anyone with the link AND the room code can join."
+      : "Runs on this laptop over your local WiFi. No accounts.";
+    if (shownUrl !== null && w.playUrl !== shownUrl) {
+      $("qr").src = "/phoneQR.png?v=" + Date.now();
     }
-    shownIp = w.ip;
+    shownUrl = w.playUrl;
   } catch (e) {}
 }
 
@@ -239,7 +272,7 @@ let lastCount = null;
 async function refreshState() {
   try {
     const s = await (await fetch("/state", { cache: "no-store" })).json();
-    const n = s.players.length;
+    const n = (s.players || []).length;
     if (n !== lastCount) {
       lastCount = n;
       $("count").textContent = n === 0
@@ -256,11 +289,23 @@ async function refreshState() {
   } catch (e) {}
 }
 
-loadGames();
-refreshAddress();
-refreshState();
-setInterval(refreshAddress, 10000);
-setInterval(refreshState, 2000);
+// --- host lock: this screen only works from the terminal's host link ---
+async function unlocked() {
+  try {
+    return (await (await fetch("/amihost", { cache: "no-store" })).json()).host;
+  } catch (e) {
+    return true;   // network blip — don't lock a real host out
+  }
+}
+
+(async () => {
+  if (!await unlocked()) { $("lock").hidden = false; return; }
+  loadGames();
+  refreshAddress();
+  refreshState();
+  setInterval(refreshAddress, 10000);
+  setInterval(refreshState, 2000);
+})();
 </script>
 </body>
 </html>

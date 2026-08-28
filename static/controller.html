@@ -165,7 +165,10 @@
 
   <div class="join" id="join">
     <input id="name" type="text" placeholder="Your name" autocomplete="off"
-           autocapitalize="words" maxlength="14" enterkeyhint="go">
+           autocapitalize="words" maxlength="14" enterkeyhint="next">
+    <input id="code" type="text" placeholder="Room code" autocomplete="off"
+           autocapitalize="characters" autocorrect="off" spellcheck="false"
+           maxlength="6" enterkeyhint="go" style="letter-spacing:0.25em;text-transform:uppercase">
     <button id="join-btn">Join game</button>
     <div class="err" id="err"></div>
   </div>
@@ -273,15 +276,26 @@ let pid = null, color = "#38bdf8", goal = 40, phase = "lobby", myTaps = 0;
 let myName = "", currentGame = undefined;
 
 // ---- joining ----
+const JOIN_ERRORS = {
+  bad_code: "That room code isn't right.",
+  full: "The game is full right now.",
+  rate_limited: "Too many tries — wait a minute and retry.",
+};
 async function join() {
   const name = $("name").value.trim();
+  const code = $("code").value.trim().toUpperCase();
   $("err").textContent = "";
+  if (!code) { $("err").textContent = "Enter the room code shown on the screen."; return; }
   try {
     const r = await fetch("/join", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name, code })
     });
     const d = await r.json();
+    if (!d || !d.pid) {
+      $("err").textContent = JOIN_ERRORS[d && d.error] || "Could not join. Try again.";
+      return;
+    }
     pid = d.pid; color = d.color; goal = d.goal;
     myName = name || ("Player " + pid);
     $("join").style.display = "none";
@@ -292,15 +306,18 @@ async function join() {
     $("waiting").hidden = false;
     startLoops();
   } catch (e) {
-    $("err").textContent = "Could not reach the game. Same WiFi as the laptop?";
+    $("err").textContent = "Could not reach the game. Check the link and your connection.";
   }
 }
 $("join-btn").addEventListener("click", join);
-$("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
+$("name").addEventListener("keydown", (e) => { if (e.key === "Enter") $("code").focus(); });
+$("code").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
 
-// optional ?name=Foo to prefill / auto-join (handy for a quick rejoin bookmark)
-const _qsName = new URLSearchParams(location.search).get("name");
-if (_qsName) { $("name").value = _qsName.slice(0, 14); join(); }
+// the QR link is /play?code=XXXX — prefill it so a scan is one tap.
+// ?name=Foo also prefills the name and auto-joins (quick-rejoin bookmark).
+const _qs = new URLSearchParams(location.search);
+if (_qs.get("code")) $("code").value = _qs.get("code").slice(0, 6).toUpperCase();
+if (_qs.get("name")) { $("name").value = _qs.get("name").slice(0, 14); join(); }
 
 function setView(game) {
   if (game === currentGame) return;
@@ -617,6 +634,7 @@ async function pollState() {
   try {
     const url = "/state" + (pid ? "?pid=" + pid : "");
     const s = await (await fetch(url, { cache: "no-store" })).json();
+    if (s.locked) { location.reload(); return; }   // dropped — back to join
     const wasPlaying = phase === "playing";
     phase = s.phase; goal = s.goal;
     const me = s.players.find(p => p.pid === pid);

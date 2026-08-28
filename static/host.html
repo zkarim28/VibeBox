@@ -32,6 +32,15 @@
     background: #fff; padding: 0.75rem; image-rendering: pixelated;
   }
   .join .scan { color: #64748b; font-size: 0.9rem; }
+  .join .scan b { color: #e2e8f0; letter-spacing: 0.2em; background: #1e293b; border-radius: 0.35rem; padding: 0.05rem 0.45rem; margin-left: 0.25rem; }
+
+  #lock {
+    position: fixed; inset: 0; background: #0b1120; z-index: 50;
+    display: flex; align-items: center; justify-content: center; text-align: center; padding: 2rem;
+  }
+  #lock h2 { font-size: 1.6rem; margin: 0.75rem 0 0.5rem; text-transform: none; letter-spacing: 0; color: #e2e8f0; }
+  #lock p { color: #94a3b8; max-width: 30rem; }
+  #lock code { background: #1e293b; padding: 0.1rem 0.4rem; border-radius: 0.3rem; }
 
   .stage { width: min(1100px, 100%); margin-top: 2.5rem; flex: 1; }
   .players { display: flex; flex-direction: column; gap: 1rem; }
@@ -202,6 +211,15 @@
 <body>
   <button class="back" id="back" type="button">‹ Games menu</button>
 
+  <div id="lock" hidden>
+    <div>
+      <div style="font-size:3rem" aria-hidden="true">🔒</div>
+      <h2>Game screen locked</h2>
+      <p>Open the host link printed in the terminal where you started
+      <code>python3 server.py</code> to unlock this screen for this browser.</p>
+    </div>
+  </div>
+
   <!-- ============ TAP RACE ============ -->
   <div id="view-tap" hidden>
     <div style="display:flex;flex-direction:column;align-items:center">
@@ -212,7 +230,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">…or scan this with your camera</div>
+        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
       </div>
 
       <div class="stage">
@@ -249,7 +267,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">…or scan this with your camera</div>
+        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
       </div>
 
       <div class="settings">
@@ -330,7 +348,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">…or scan this with your camera</div>
+        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
       </div>
 
       <div class="settings">
@@ -410,22 +428,32 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",
 const post = (body) => fetch("/input", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) }).catch(()=>{});
 
 // ---- shared join address + QR ----
-let shownIp = null;
+let shownUrl = null;
 async function refreshAddress() {
   try {
     const w = await (await fetch("/whoami", { cache:"no-store" })).json();
-    const url = w.playUrl.replace(/^https?:\/\//, "");
+    const url = w.playUrl.replace(/^https?:\/\//, "").replace(/\?.*$/, "");
     document.querySelectorAll("[data-join-url]").forEach(e => e.textContent = url);
-    if (shownIp !== null && w.ip !== shownIp) {
-      document.querySelectorAll("[data-qr]").forEach(e => e.src = "/phoneQR.png?ip=" + encodeURIComponent(w.ip));
+    document.querySelectorAll("[data-join-code]").forEach(e => e.textContent = w.code);
+    if (shownUrl !== null && w.playUrl !== shownUrl) {
+      document.querySelectorAll("[data-qr]").forEach(e => e.src = "/phoneQR.png?v=" + Date.now());
     }
-    shownIp = w.ip;
+    shownUrl = w.playUrl;
   } catch (e) {
     document.querySelectorAll("[data-join-url]").forEach(e => e.textContent = location.host + "/play");
   }
 }
-refreshAddress();
-setInterval(refreshAddress, 10000);
+
+// ---- host lock: this screen only works from the terminal's host link ----
+(async () => {
+  let ok = true;
+  try { ok = (await (await fetch("/amihost", { cache:"no-store" })).json()).host; }
+  catch (e) {}
+  if (!ok) { $("lock").hidden = false; return; }
+  refreshAddress();
+  setInterval(refreshAddress, 10000);
+  pollHost();
+})();
 
 // ---- clock offset so the timer matches the server ----
 let clockOffset = 0;   // serverNow(ms) - Date.now()
@@ -725,13 +753,20 @@ document.querySelectorAll("[data-set]").forEach(b => {
   b.addEventListener("click", () => post({ action: "scatSet", key: b.dataset.set, value: b.dataset.val === "true" }));
 });
 
-// ---- live updates ----
-function connect() {
-  const es = new EventSource("/events");
-  es.onmessage = (e) => render(JSON.parse(e.data));
-  es.onerror = () => { es.close(); setTimeout(connect, 1000); };
+// ---- live updates: poll /state (works through any proxy / tunnel; SSE didn't) ----
+function hostPollDelay() {
+  const s = lastState;
+  if (s && s.game === "taboo" && s.taboo && (s.taboo.phase === "turn" || s.taboo.phase === "ready")) return 300;
+  return 550;
 }
-connect();
+async function pollHost() {
+  try {
+    const s = await (await fetch("/state", { cache: "no-store" })).json();
+    if (s.locked) { $("lock").hidden = false; return; }   // host cookie lost
+    render(s);
+  } catch (e) {}
+  setTimeout(pollHost, hostPollDelay());
+}
 
 // ---- back to menu ----
 $("back").addEventListener("click", async () => {

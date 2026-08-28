@@ -57,18 +57,50 @@ returns to the lobby.
 python3 server.py
 ```
 
-It prints two URLs, e.g.
+It asks **Local or Public** (see below), then prints a **host link** and a
+**room code**, e.g.
 
 ```
-laptop / games menu :  http://localhost:8000/
-phones / controller :  http://192.168.1.24:8000/play
+HOST — open this to unlock the laptop screen (one click):
+    http://192.168.1.24:8000/?host=Xk3n-9f...
+Players join at:   http://192.168.1.24:8000/play?code=WXYZ
+Room code:         WXYZ
 ```
 
-1. Open the **menu** URL on your laptop (full-screen it).
-2. On each phone (same WiFi), open **/play**, type a name, tap **Join**.
+1. **Open the host link** on your laptop. It sets a cookie and drops you on the
+   menu — that browser is now the "host". Any browser without that cookie sees a
+   "screen locked" page, so a stray player can't hijack the game.
+2. Players open **/play** (or scan the QR — it carries the code), type a name +
+   the **room code**, tap **Join**.
 3. On the laptop, pick a game. Players' phones switch to that controller.
-4. In Tap Race: **Space** starts / restarts, **R** returns to the lobby,
-   **‹ Games menu** (top-left) goes back to the menu.
+4. In Tap Race: **Space** starts / restarts, **R** returns to the lobby.
+
+### Playing over the internet
+
+On start it asks:
+
+```
+  How do you want to run?
+    [L] Local  — phones on the same WiFi only            (default)
+    [P] Public — anyone with the link + room code, via a Cloudflare tunnel
+
+  Choose L or P:
+```
+
+Pick **P** and it runs `cloudflared` for you, grabs the `https://…trycloudflare.com`
+URL, and rewrites the QR / join link / host link to use it. Ctrl+C stops the
+tunnel too. Needs `cloudflared` on PATH (`brew install cloudflared`); if it's
+missing or the tunnel fails, it falls back to local.
+
+Skip the prompt with `MODE=local` or `MODE=public`. Or point at a tunnel you
+started yourself with `PUBLIC_URL=https://… python3 server.py`.
+
+Anyone joining needs **both** the link **and** the room code; the laptop screens
+still require the host cookie. Read the security notes below before doing this.
+
+Env knobs: `MODE` (local|public), `PUBLIC_URL`, `ROOM_CODE` (default random),
+`HOST_TOKEN` (default random — set it for a stable host bookmark),
+`MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / IP / minute).
 
 ## How it works
 
@@ -79,15 +111,18 @@ phones / controller :  http://192.168.1.24:8000/play
 | `scattergories.py` | Category pool, letter set, and the pure scoring / alliteration helpers. |
 | `taboo.py` | The ~145-card Taboo deck + a shuffle helper. |
 | `GET /` → `static/menu.html` | The games menu. Accessible: keyboard-navigable, screen-reader labelled, respects reduced-motion. Lists games from `GET /games`. |
-| `GET /host` → `static/host.html` | The game screen. One shell, a view per game, switched by `state["game"]`. Live updates via Server-Sent Events (`/events`). |
+| `GET /host` → `static/host.html` | The game screen. One shell, a view per game, switched by `state["game"]`. Polls `/state` ~2×/second for updates (SSE didn't survive the Cloudflare tunnel). |
 | `GET /play` → `static/controller.html` | The phone controller. One shell: "waiting" screen, then the current game's controls. |
+| `GET /?host=<token>` | Sets the host cookie (302 → clean path). Any laptop screen needs this cookie or it shows "locked". |
+| `GET /amihost` | `{host: bool, code}` from the request's cookie — the menu/host pages use it to lock themselves. |
 | `GET /games` | The game catalog (`GAMES` in `server.py`). |
-| `GET /whoami` | This machine's current LAN IP + the phone URL. |
-| `GET /phoneQR.png` | QR code for the controller page. **Generated live from the current LAN IP** — switch WiFi networks and the screen updates itself within ~10s, no restart. |
-| `POST /select` | `{game: "<id>" | null}` — host picks a game (or `null` to return to the menu). |
-| `POST /join` | Registers a player, returns a `pid` + color. |
-| `POST /input` | `{pid, action, ...}`. Tap Race: `tap` / `start` / `reset`. Scattergories: `scat*`. Taboo: `tabooStart`, `tabooSet`, `tabooTeam`, `tabooBeginTurn`, `tabooGot`, `tabooSkip`, `tabooBuzz`, `tabooEndTurn`, `tabooNextTurn`, `tabooEndGame`, `tabooNewGame`. `leave` drops a player now; `ping` still works. |
-| `GET /state?pid=<id>` | Latest state. When `pid` is present it also refreshes that player's heartbeat — the controller polls this ~2×/second, so it doubles as the keep-alive. |
+| `GET /whoami` | *(host only)* The public/LAN phone URL + room code. |
+| `GET /phoneQR.png` | *(host only)* QR of the join URL (carries `?code=`). Regenerates when the address changes. |
+| `POST /select` | *(host only)* `{game}` — pick a game (or `null` for the menu). |
+| `POST /join` | `{name, code}` — code must match; rate-limited per IP; capped at `MAX_PLAYERS`. Returns `pid` + color or `{error}`. |
+| `POST /input` | `{pid, action, ...}`. Player actions (`tap`, `scatAnswers`, `scatVote`, `tabooGot/Skip/Buzz`, `tabooTeam`, `leave`, `ping`) are open. Host-only actions (`start`, `reset`, `scatStart/Set/EndRound/Next/Lobby/ResetScores`, `tabooStart/Set/BeginTurn/EndTurn/NextTurn/EndGame/NewGame`) require the host cookie — see `HOST_ONLY` in `server.py`. |
+| `GET /state?pid=<id>` | Latest state. Needs the host cookie **or** a valid `pid`; otherwise returns `{locked: true}`. A present `pid` also refreshes that player's heartbeat — the controller polls ~2×/second, so it doubles as the keep-alive. |
+| `GET /events` | *(host only)* legacy SSE stream — unused now (the host polls). |
 
 **Disconnects:** the controller's `/state?pid=` poll is the heartbeat. A player
 that goes silent for `PLAYER_TIMEOUT` (6s) is dropped by `janitor()` (checked
@@ -115,8 +150,27 @@ so a deliberate exit is near-instant. State served to clients is in
 
 ## Notes
 
-- Phone and laptop must be on the **same network**, and it must allow
-  device-to-device traffic (some public/guest WiFi blocks this — a phone
-  hotspot works as a fallback).
+- On LAN, phone and laptop must be on the **same network** and it must allow
+  device-to-device traffic (some guest WiFi blocks this — a phone hotspot works).
 - macOS may pop a firewall prompt the first time — click **Allow**.
-- Plain HTTP on your LAN, no auth. Fine for a living room, not the open internet.
+
+## Security (matters if you expose it via a tunnel)
+
+What's protected:
+
+- **Laptop screens** (`/`, `/host`, `/whoami`, QR, `/events`, `/select`, all
+  host game controls) need the host cookie, set only by opening the printed
+  `?host=<token>` link. A random visitor gets a "locked" page.
+- **Joining** needs the room code. `/state` gives nothing useful without the
+  cookie or a live `pid`, so a stray link-holder can't even spectate.
+- Rate limit on join attempts (slows room-code guessing) and a hard player cap.
+
+What's still true:
+
+- The tunnel provider terminates TLS and can see traffic.
+- The room code is 4 chars — fine against casual guessing, not a real secret.
+  Share the link + code only with people you want playing.
+- It's a hobby `ThreadingHTTPServer`. Don't leave the tunnel up when you're not
+  actively playing, and don't treat this as hardened infrastructure.
+- `HOST_TOKEN` regenerates every run unless you set it — so does the room code
+  unless you set `ROOM_CODE`.

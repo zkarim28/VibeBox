@@ -8,12 +8,18 @@ Local party-game server. Zero dependencies (Python 3 stdlib only).
 Run:  python3 server.py
 """
 
+import http.cookies
 import json
+import os
 import queue
+import re
+import secrets
+import shutil
 import socket
+import subprocess
+import sys
 import threading
 import time
-import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -32,6 +38,34 @@ GOAL = 40                     # taps needed to win
 PLAYER_TIMEOUT = 6            # seconds without a heartbeat -> drop player
 COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#eab308",
           "#a855f7", "#ec4899", "#14b8a6", "#f97316"]
+
+# --- access control (matters most when exposed via a tunnel) -------------------
+# Set PUBLIC_URL to the https URL your tunnel prints, e.g.
+#   PUBLIC_URL=https://foo-bar-baz.trycloudflare.com python3 server.py
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
+MAX_PLAYERS = int(os.environ.get("MAX_PLAYERS", "12"))
+# Room code players must supply to join. The QR carries it; typed-in players
+# read it off the host screen. Override with ROOM_CODE=WXYZ to keep it stable.
+_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # no 0/O/1/I/L
+ROOM_CODE = (os.environ.get("ROOM_CODE", "").strip().upper()
+             or "".join(secrets.choice(_CODE_ALPHABET) for _ in range(4)))
+# Secret that unlocks the laptop screens (menu + game screen). Printed on start.
+# Override with HOST_TOKEN=... to keep your host bookmark stable across restarts.
+HOST_TOKEN = os.environ.get("HOST_TOKEN", "").strip() or secrets.token_urlsafe(18)
+JOIN_WINDOW = 60             # seconds
+# join attempts per client IP per window — mainly to slow room-code guessing.
+# Real players rejoin a handful of times at most; bump it if you're behind a
+# proxy that collapses everyone to one IP.
+JOIN_MAX = int(os.environ.get("JOIN_MAX", "15"))
+_join_hits = {}             # ip -> [timestamps]
+
+# Actions only the host screen may trigger.
+HOST_ONLY = {
+    "start", "reset",
+    "scatStart", "scatSet", "scatEndRound", "scatNext", "scatLobby", "scatResetScores",
+    "tabooStart", "tabooSet", "tabooBeginTurn", "tabooEndTurn", "tabooNextTurn",
+    "tabooEndGame", "tabooNewGame",
+}
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
 # playable one, the game logic) to grow the collection.
@@ -108,8 +142,30 @@ def lan_ip():
         s.close()
 
 
+def base_url():
+    return PUBLIC_URL or f"http://{lan_ip()}:{PORT}"
+
+
 def play_url():
-    return f"http://{lan_ip()}:{PORT}/play"
+    """The address a phone joins at — carries the room code so a QR scan is
+    zero-friction."""
+    return f"{base_url()}/play?code={ROOM_CODE}"
+
+
+def host_url():
+    return f"{base_url()}/?host={HOST_TOKEN}"
+
+
+def rate_ok(ip):
+    """Simple sliding-window limiter for /join. Caller holds _lock."""
+    now = time.time()
+    hits = [t for t in _join_hits.get(ip, []) if now - t < JOIN_WINDOW]
+    if len(hits) >= JOIN_MAX:
+        _join_hits[ip] = hits
+        return False
+    hits.append(now)
+    _join_hits[ip] = hits
+    return True
 
 
 # QR image is regenerated only when the play URL changes (e.g. new WiFi).
@@ -359,6 +415,13 @@ def touch_player(pid):
         p["last_seen"] = time.time()
 
 
+def _valid_pid(pid):
+    try:
+        return int(pid) in state["players"]
+    except (TypeError, ValueError):
+        return False
+
+
 def janitor():
     while True:
         time.sleep(1)
@@ -390,8 +453,14 @@ def janitor():
 
 
 # ------------------------------------------------------------------- actions ---
-def do_join(name):
+def do_join(name, code, ip):
     with _lock:
+        if not rate_ok(ip):
+            return {"ok": False, "error": "rate_limited"}
+        if (code or "").strip().upper() != ROOM_CODE:
+            return {"ok": False, "error": "bad_code"}
+        if len(state["players"]) >= MAX_PLAYERS:
+            return {"ok": False, "error": "full"}
         pid = _next_pid[0]
         _next_pid[0] += 1
         color = COLORS[(pid - 1) % len(COLORS)]
@@ -734,8 +803,10 @@ def do_taboo(pid, action, data):
     return {"ok": False, "error": "unknown_action"}
 
 
-def do_input(data):
+def do_input(data, is_host=False):
     pid, action = data.get("pid"), data.get("action")
+    if action in HOST_ONLY and not is_host:
+        return {"ok": False, "error": "not_host"}
     with _lock:
         if action == "ping":
             touch_player(pid)
@@ -833,9 +904,45 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
+    def _is_host(self):
+        raw = self.headers.get("Cookie", "")
+        try:
+            jar = http.cookies.SimpleCookie(raw)
+        except http.cookies.CookieError:
+            return False
+        c = jar.get("hosttoken")
+        return bool(c) and secrets.compare_digest(c.value, HOST_TOKEN)
+
+    def _client_ip(self):
+        for h in ("CF-Connecting-IP", "X-Forwarded-For"):
+            v = self.headers.get(h)
+            if v:
+                return v.split(",")[0].strip()
+        return self.client_address[0]
+
     # -- routes --
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        qs = parse_qs(parsed.query)
+
+        # unlock the laptop screens: ?host=<token> -> set cookie, drop the query
+        tok = qs.get("host", [None])[0]
+        if tok is not None:
+            if secrets.compare_digest(tok, HOST_TOKEN):
+                self.send_response(302)
+                self.send_header(
+                    "Set-Cookie",
+                    f"hosttoken={HOST_TOKEN}; Path=/; Max-Age=43200; SameSite=Lax")
+                self.send_header("Location", path or "/")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                self.send_error(403, "bad host key")
+            return
+
+        host = self._is_host()
+
         if path == "/":
             self._send_file("menu.html", "text/html; charset=utf-8")
         elif path in ("/host", "/host/"):
@@ -844,7 +951,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file("controller.html", "text/html; charset=utf-8")
         elif path == "/games":
             self._send_json({"games": GAMES})
+        elif path == "/amihost":
+            self._send_json({"host": host, "code": ROOM_CODE if host else None})
         elif path == "/phoneQR.png":
+            if not host:
+                self.send_error(403); return
             png, _ = qr_png_for_current_url()
             self.send_response(200)
             self.send_header("Content-Type", "image/png")
@@ -853,14 +964,23 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(png)
         elif path == "/whoami":
-            self._send_json({"ip": lan_ip(), "port": PORT, "playUrl": play_url()})
+            if not host:
+                self.send_error(403); return
+            self._send_json({"playUrl": play_url(), "code": ROOM_CODE,
+                             "public": bool(PUBLIC_URL)})
         elif path == "/state":
-            pid = parse_qs(urlparse(self.path).query).get("pid", [None])[0]
+            pid = qs.get("pid", [None])[0]
             with _lock:
+                if not host and not _valid_pid(pid):
+                    self._send_json({"locked": True, "game": state["game"],
+                                     "players": []})
+                    return
                 if pid is not None:
                     touch_player(pid)   # the poll doubles as the heartbeat
                 self._send_json(public_state())
         elif path == "/events":
+            if not host:
+                self.send_error(403); return
             self._stream_events()
         else:
             self.send_error(404)
@@ -869,11 +989,15 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         data = self._read_json()
         if path == "/join":
-            self._send_json(do_join(data.get("name")))
+            self._send_json(do_join(data.get("name"), data.get("code"),
+                                    self._client_ip()))
         elif path == "/input":
-            self._send_json(do_input(data))
+            self._send_json(do_input(data, self._is_host()))
         elif path == "/select":
-            self._send_json(do_select(data.get("game")))
+            if not self._is_host():
+                self._send_json({"ok": False, "error": "not_host"}, 403)
+            else:
+                self._send_json(do_select(data.get("game")))
         else:
             self.send_error(404)
 
@@ -904,19 +1028,121 @@ class Handler(BaseHTTPRequestHandler):
             _subscribers.discard(q)
 
 
-def main():
-    threading.Thread(target=janitor, daemon=True).start()
-    srv = ThreadingHTTPServer((HOST, PORT), Handler)
-    ip = lan_ip()
-    print("\n  party-game server running\n")
-    print(f"  laptop / games menu :  http://localhost:{PORT}/")
-    print(f"  phones / controller :  http://{ip}:{PORT}/play")
-    print("\n  (phone must be on the same WiFi.  Ctrl+C to stop.)\n")
+_TCF_RE = re.compile(r"https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com")
+
+
+def _ask_mode():
+    """Prompt for local vs public. MODE=local|public skips the prompt; falls
+    back to local when there's no terminal to ask on."""
+    env = os.environ.get("MODE", "").strip().lower()
+    if env in ("local", "public"):
+        return env
+    if not sys.stdin.isatty():
+        return "local"
+    print("\n  How do you want to run?")
+    print("    [L] Local  — phones on the same WiFi only            (default)")
+    print("    [P] Public — anyone with the link + room code, via a Cloudflare tunnel")
     try:
-        srv.serve_forever()
+        ans = input("\n  Choose L or P: ").strip().lower()
+    except EOFError:
+        return "local"
+    return "public" if ans.startswith("p") else "local"
+
+
+def _start_tunnel(port):
+    """Launch `cloudflared` and return (proc, https_url), or None on failure."""
+    exe = shutil.which("cloudflared")
+    if not exe:
+        print("\n  cloudflared isn't on your PATH. Install it with:")
+        print("      brew install cloudflared")
+        return None
+    print("\n  starting a Cloudflare tunnel (a few seconds)…")
+    proc = subprocess.Popen(
+        [exe, "tunnel", "--url", f"http://localhost:{port}"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1)
+    tail, url, deadline = [], None, time.time() + 40
+    while time.time() < deadline:
+        ln = proc.stdout.readline()
+        if not ln:
+            if proc.poll() is not None:
+                break
+            continue
+        tail = (tail + [ln])[-12:]
+        m = _TCF_RE.search(ln)
+        if m:
+            url = m.group(0)
+            break
+    if not url:
+        print("  couldn't get a tunnel URL. cloudflared said:")
+        for ln in tail:
+            print("    " + ln.rstrip())
+        proc.terminate()
+        return None
+    # keep draining output so cloudflared's pipe never fills; warn if it dies
+    def _watch():
+        for _ in proc.stdout:
+            pass
+        if proc.returncode not in (0, None):
+            print("\n  ⚠  the Cloudflare tunnel stopped — remote players are cut off.")
+    threading.Thread(target=_watch, daemon=True).start()
+    return proc, url
+
+
+def _banner(tunnel_on):
+    line = "  " + "-" * 62
+    print("\n  party-game server running\n")
+    print(line)
+    print("  HOST — open this to unlock the laptop screen (one click):")
+    print(f"      {host_url()}")
+    print(line)
+    print(f"  Players join at:   {play_url()}")
+    print(f"  Room code:         {ROOM_CODE}    (the QR already includes it)")
+    print(line)
+    if tunnel_on:
+        print("  PUBLIC via Cloudflare tunnel — anyone with the link AND code can join.")
+        print("  Ctrl+C stops the game and the tunnel.")
+    elif PUBLIC_URL:
+        print("  PUBLIC MODE (PUBLIC_URL set) — anyone with the link AND code can join.")
+    else:
+        print("  LAN only.  Local host link also works:")
+        print(f"      http://localhost:{PORT}/?host={HOST_TOKEN}")
+    print(line + "\n")
+
+
+def main():
+    global PUBLIC_URL
+    try:
+        sys.stdout.reconfigure(line_buffering=True)   # show output even when piped
+    except Exception:
+        pass
+
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)   # binds + listens now
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    threading.Thread(target=janitor, daemon=True).start()
+
+    tunnel = None
+    if not PUBLIC_URL and _ask_mode() == "public":
+        tunnel = _start_tunnel(PORT)
+        if tunnel:
+            PUBLIC_URL = tunnel[1]
+        else:
+            print("  → running LOCAL instead.")
+
+    _banner(tunnel is not None)
+    try:
+        while True:
+            time.sleep(3600)
     except KeyboardInterrupt:
         print("\n  bye\n")
+    finally:
         srv.shutdown()
+        if tunnel:
+            tunnel[0].terminate()
+            try:
+                tunnel[0].wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                tunnel[0].kill()
 
 
 if __name__ == "__main__":
