@@ -90,6 +90,12 @@
   .vote.elim .txt { text-decoration: line-through; color: #64748b; }
   .vote.mine { color: #94a3b8; }
   .vote .who { font-weight: 700; font-size: 0.85rem; }
+  .vote .tally {
+    flex-basis: 100%; font-size: 0.85rem; color: #64748b;
+    font-variant-numeric: tabular-nums; margin-top: 0.15rem;
+  }
+  .vote .tally .y { color: #4ade80; font-weight: 700; }
+  .vote .tally .n { color: #f87171; font-weight: 700; }
   .vbtn {
     border: 1px solid #334155; background: #111827; color: #e2e8f0;
     font: inherit; font-weight: 700; padding: 0.5rem 0.9rem; border-radius: 0.55rem; cursor: pointer;
@@ -435,18 +441,20 @@ function renderScat(s) {
       $("sc-rev-list").innerHTML = "";
       $("sc-rev-foot").textContent = "No answers for this one — waiting for the host…";
     } else {
+      const tally = (a) => `<span class="tally"><b class="y">${a.yes}</b> yes &nbsp;·&nbsp; <b class="n">${a.no}</b> no</span>`;
       $("sc-rev-list").innerHTML = ans.map(a => {
         const isMine = a.pid === pid;
         const who = (sc.showNames && a.name) ? `<span class="who" style="color:${a.color}">${esc(a.name)}</span>` : "";
         if (a.eliminated)
           return `<div class="vote elim">${who}<span class="txt">${esc(a.text)}</span><span class="pill">duplicate</span></div>`;
         if (isMine)
-          return `<div class="vote mine">${who}<span class="txt">${esc(a.text)}</span><span class="pill">your answer</span></div>`;
+          return `<div class="vote mine">${who}<span class="txt">${esc(a.text)}</span><span class="pill">your answer</span>${tally(a)}</div>`;
         const mv = a.votes ? a.votes[mineKey] : undefined;
         return `<div class="vote" data-target="${a.pid}">${who}
           <span class="txt">${esc(a.text)}</span>
           <button class="vbtn yes ${mv === true ? "on" : ""}" data-v="1" type="button">Yes</button>
           <button class="vbtn no ${mv === false ? "on" : ""}" data-v="0" type="button">No</button>
+          ${tally(a)}
         </div>`;
       }).join("");
       $("sc-rev-list").querySelectorAll(".vbtn").forEach(btn => {
