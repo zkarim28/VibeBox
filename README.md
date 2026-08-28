@@ -86,10 +86,14 @@ phones / controller :  http://192.168.1.24:8000/play
 | `GET /phoneQR.png` | QR code for the controller page. **Generated live from the current LAN IP** — switch WiFi networks and the screen updates itself within ~10s, no restart. |
 | `POST /select` | `{game: "<id>" | null}` — host picks a game (or `null` to return to the menu). |
 | `POST /join` | Registers a player, returns a `pid` + color. |
-| `POST /input` | `{pid, action, ...}`. Tap Race: `tap` / `start` / `reset`. Scattergories: `scat*`. Taboo: `tabooStart`, `tabooSet`, `tabooTeam`, `tabooBeginTurn`, `tabooGot`, `tabooSkip`, `tabooBuzz`, `tabooEndTurn`, `tabooNextTurn`, `tabooEndGame`, `tabooNewGame`. `ping` keeps a player alive. |
+| `POST /input` | `{pid, action, ...}`. Tap Race: `tap` / `start` / `reset`. Scattergories: `scat*`. Taboo: `tabooStart`, `tabooSet`, `tabooTeam`, `tabooBeginTurn`, `tabooGot`, `tabooSkip`, `tabooBuzz`, `tabooEndTurn`, `tabooNextTurn`, `tabooEndGame`, `tabooNewGame`. `leave` drops a player now; `ping` still works. |
+| `GET /state?pid=<id>` | Latest state. When `pid` is present it also refreshes that player's heartbeat — the controller polls this ~2×/second, so it doubles as the keep-alive. |
 
-Players that stop pinging for 15s are dropped automatically. The state served
-to clients is in `public_state()`; per-game blocks hang off it (`scat`, `taboo`).
+**Disconnects:** the controller's `/state?pid=` poll is the heartbeat. A player
+that goes silent for `PLAYER_TIMEOUT` (6s) is dropped by `janitor()` (checked
+every second). Closing / navigating the controller page fires a `leave` beacon
+so a deliberate exit is near-instant. State served to clients is in
+`public_state()`; per-game blocks hang off it (`scat`, `taboo`).
 
 ## Adding a game
 

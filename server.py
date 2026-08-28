@@ -15,7 +15,7 @@ import threading
 import time
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
@@ -26,7 +26,10 @@ PORT = 8000
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 GOAL = 40                     # taps needed to win
-PLAYER_TIMEOUT = 15           # seconds without a ping -> drop player
+# Controllers touch the server ~2x/second via /state polling, so a player that
+# goes quiet for this long has really gone. Kept a little above the slowest
+# poll interval (~0.7s) times a handful of missed polls, to ride out WiFi blips.
+PLAYER_TIMEOUT = 6            # seconds without a heartbeat -> drop player
 COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#eab308",
           "#a855f7", "#ec4899", "#14b8a6", "#f97316"]
 
@@ -337,7 +340,7 @@ def broadcast():
 
 
 def reap_players():
-    """Drop players who stopped pinging. Caller holds _lock."""
+    """Drop players whose controller has gone silent. Caller holds _lock."""
     now = time.time()
     stale = [pid for pid, p in state["players"].items()
              if now - p["last_seen"] > PLAYER_TIMEOUT]
@@ -346,11 +349,19 @@ def reap_players():
     return bool(stale)
 
 
+def touch_player(pid):
+    """Mark a player alive from any request that carries their id."""
+    try:
+        p = state["players"].get(int(pid))
+    except (TypeError, ValueError):
+        return
+    if p:
+        p["last_seen"] = time.time()
+
+
 def janitor():
-    ticks = 0
     while True:
         time.sleep(1)
-        ticks += 1
         with _lock:
             changed = False
             # end a Scattergories round when its timer runs out
@@ -372,7 +383,7 @@ def janitor():
                 tb["phase"] = "turnend"
                 tb["card"] = None
                 changed = True
-            if ticks % 3 == 0 and reap_players():
+            if reap_players():
                 changed = True
             if changed:
                 broadcast()
@@ -727,9 +738,14 @@ def do_input(data):
     pid, action = data.get("pid"), data.get("action")
     with _lock:
         if action == "ping":
-            p = state["players"].get(pid)
-            if p:
-                p["last_seen"] = time.time()
+            touch_player(pid)
+            return {"ok": True}
+
+        if action == "leave":
+            # sent as a beacon when a controller page is closed / navigated away
+            if pid in state["players"]:
+                del state["players"][pid]
+                broadcast()
             return {"ok": True}
 
         if isinstance(action, str) and action.startswith("scat"):
@@ -839,7 +855,10 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/whoami":
             self._send_json({"ip": lan_ip(), "port": PORT, "playUrl": play_url()})
         elif path == "/state":
+            pid = parse_qs(urlparse(self.path).query).get("pid", [None])[0]
             with _lock:
+                if pid is not None:
+                    touch_player(pid)   # the poll doubles as the heartbeat
                 self._send_json(public_state())
         elif path == "/events":
             self._stream_events()

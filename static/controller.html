@@ -594,12 +594,21 @@ function renderTaboo(s) {
 // ---- keep-alive + polling ----
 function startLoops() {
   requestAnimationFrame(flushTaps);
-  setInterval(() => send("ping"), 4000);
-  pollState();
+  pollState();   // the state poll itself is the heartbeat (see /state?pid=)
 }
+
+// tell the server immediately when this controller is really closing —
+// e.persisted means the page is only being frozen (phone lock / tab switch),
+// so the player is expected back and we leave them in.
+window.addEventListener("pagehide", (e) => {
+  if (e.persisted || !pid || !navigator.sendBeacon) return;
+  navigator.sendBeacon("/input", JSON.stringify({ pid, action: "leave" }));
+});
+
 async function pollState() {
   try {
-    const s = await (await fetch("/state", { cache: "no-store" })).json();
+    const url = "/state" + (pid ? "?pid=" + pid : "");
+    const s = await (await fetch(url, { cache: "no-store" })).json();
     const wasPlaying = phase === "playing";
     phase = s.phase; goal = s.goal;
     const me = s.players.find(p => p.pid === pid);
