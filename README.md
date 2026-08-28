@@ -3,10 +3,32 @@
 A tiny local party-game console. The **laptop** shows a menu and the game
 screen; **phones** on the same WiFi join and act as controllers.
 
-Currently playable: **Tap Race** and **Scattergories**. More games are stubbed
-on the menu as "Coming soon".
+Currently playable: **Tap Race**, **Scattergories**, and **Taboo**. More games
+are stubbed on the menu as "Coming soon".
 
 No dependencies — just Python 3 (stdlib only).
+
+## Taboo
+
+Two teams, **one phone each**. A card (guess word + 5 forbidden "taboo" words)
+shows on the big screen.
+
+Before every turn there's a 5-second **"get ready"** countdown (big screen shows
+the team that's up; each phone tells its player their role). The host can tap
+**Start now** to skip it. Then the turn runs for 60 seconds:
+
+- The **clue-giving team's phone** shows the card with **✓ Got it** (+1 point)
+  and **Skip** buttons.
+- The **other team's phone** shows the same card with a **🔔 Taboo!** buzzer —
+  tap it if the clue-giver says a listed word.
+- Any of Got it / Skip / Taboo advances the big screen to the next card. A
+  running turn log (✅ / ⏭ / 🔔) builds up.
+- When time runs out the turn ends; the host taps **Next turn** and the other
+  team goes. **End game** shows the winner.
+
+Host lobby settings: seconds per turn, team names, and *a correct buzz gives the
+other team a point* (off by default). Players are auto-split across the two
+teams on join and can switch on their phone in the lobby.
 
 ## Scattergories
 
@@ -55,6 +77,7 @@ phones / controller :  http://192.168.1.24:8000/play
 | `server.py` | stdlib HTTP server. Holds all game state in memory. |
 | `qr.py` | Dependency-free QR-code generator (verified against the `qrcode` package + decoded back with OpenCV). |
 | `scattergories.py` | Category pool, letter set, and the pure scoring / alliteration helpers. |
+| `taboo.py` | The ~145-card Taboo deck + a shuffle helper. |
 | `GET /` → `static/menu.html` | The games menu. Accessible: keyboard-navigable, screen-reader labelled, respects reduced-motion. Lists games from `GET /games`. |
 | `GET /host` → `static/host.html` | The game screen. One shell, a view per game, switched by `state["game"]`. Live updates via Server-Sent Events (`/events`). |
 | `GET /play` → `static/controller.html` | The phone controller. One shell: "waiting" screen, then the current game's controls. |
@@ -63,10 +86,10 @@ phones / controller :  http://192.168.1.24:8000/play
 | `GET /phoneQR.png` | QR code for the controller page. **Generated live from the current LAN IP** — switch WiFi networks and the screen updates itself within ~10s, no restart. |
 | `POST /select` | `{game: "<id>" | null}` — host picks a game (or `null` to return to the menu). |
 | `POST /join` | Registers a player, returns a `pid` + color. |
-| `POST /input` | `{pid, action, ...}`. Tap Race: `tap` / `start` / `reset`. Scattergories: `scatStart`, `scatSet`, `scatAnswers`, `scatEndRound`, `scatVote`, `scatNext`, `scatLobby`, `scatResetScores`. `ping` keeps a player alive. |
+| `POST /input` | `{pid, action, ...}`. Tap Race: `tap` / `start` / `reset`. Scattergories: `scat*`. Taboo: `tabooStart`, `tabooSet`, `tabooTeam`, `tabooBeginTurn`, `tabooGot`, `tabooSkip`, `tabooBuzz`, `tabooEndTurn`, `tabooNextTurn`, `tabooEndGame`, `tabooNewGame`. `ping` keeps a player alive. |
 
 Players that stop pinging for 15s are dropped automatically. The state served
-to clients is in `public_state()`; per-game blocks hang off it (`scat`).
+to clients is in `public_state()`; per-game blocks hang off it (`scat`, `taboo`).
 
 ## Adding a game
 
@@ -82,6 +105,7 @@ to clients is in `public_state()`; per-game blocks hang off it (`scat`).
 
 - Tap Race win target: `GOAL` in `server.py`.
 - Scattergories categories / letters: `CATEGORY_POOL`, `LETTERS` in `scattergories.py`.
+- Taboo cards: `_CARDS` in `taboo.py` (guess word + 5 taboo words per tuple).
 - Port: `PORT` in `server.py`.
 - Player colors: `COLORS` in `server.py`.
 

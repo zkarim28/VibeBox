@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
+import taboo          # local, Taboo card deck
 
 HOST = "0.0.0.0"
 PORT = 8000
@@ -47,6 +48,14 @@ GAMES = [
         "players": "2-8 players",
         "status": "ready",
         "emoji": "\N{INPUT SYMBOL FOR LATIN LETTERS}",
+    },
+    {
+        "id": "taboo",
+        "name": "Taboo",
+        "tagline": "Get your team to say the word — without saying the 5 forbidden ones.",
+        "players": "2 teams · 1 phone each",
+        "status": "ready",
+        "emoji": "\N{ZIPPER-MOUTH FACE}",
     },
     {
         "id": "doodle-dash",
@@ -134,13 +143,39 @@ def fresh_scat():
     }
 
 
+TABOO_READY_SECONDS = 5   # "get ready" countdown before each turn
+
+
+def fresh_taboo():
+    """A Taboo sub-state in its lobby form."""
+    return {
+        "phase": "lobby",        # lobby | ready | turn | turnend | gameover
+        "turnSeconds": 60,
+        "buzzScoresPoint": False, # a correct buzz gives the buzzing team a point
+        "teamNames": {"1": "Team 1", "2": "Team 2"},
+        "scores": {"1": 0, "2": 0},
+        "activeTeam": 1,         # the team giving clues this turn
+        "startTeam": 1,          # who takes the first turn of a game
+        "deck": [],              # shuffled card indices
+        "deckPos": 0,
+        "card": None,            # {"word", "taboo": [...], "seq"}
+        "cardSeq": 0,
+        "readyUntil": None,      # epoch seconds — end of the pre-turn countdown
+        "endsAt": None,          # epoch seconds
+        "turnPoints": {"1": 0, "2": 0},   # points scored during the live turn
+        "turnLog": [],           # [{"word", "result"}]  result: got|skip|buzz
+        "lastAction": None,      # {"type", "team", "seq"}  -> big-screen flash
+    }
+
+
 state = {
     "game": None,             # None = menu screen, else a GAMES id
     "phase": "lobby",         # tap-race phase: lobby | playing | over
     "goal": GOAL,
     "winner": None,           # tap-race winner pid
-    "players": {},            # pid -> {name, color, taps, score, last_seen}
+    "players": {},            # pid -> {name, color, taps, score, team, last_seen}
     "scat": fresh_scat(),
+    "taboo": fresh_taboo(),
 }
 _next_pid = [1]
 
@@ -235,11 +270,44 @@ def _scat_category_answers(idx):
     return answers
 
 
+def _taboo_public():
+    tb = state["taboo"]
+    counts = {"1": 0, "2": 0}
+    for p in state["players"].values():
+        if p.get("team") in (1, 2):
+            counts[str(p["team"])] += 1
+    out = {
+        "phase": tb["phase"],
+        "turnSeconds": tb["turnSeconds"],
+        "buzzScoresPoint": tb["buzzScoresPoint"],
+        "teamNames": tb["teamNames"],
+        "scores": tb["scores"],
+        "activeTeam": tb["activeTeam"],
+        "teamCounts": counts,
+        "endsAt": tb["endsAt"],
+        "serverNow": time.time(),
+        "turnPoints": tb["turnPoints"],
+        "turnLog": tb["turnLog"],
+        "lastAction": tb["lastAction"],
+        "deckSize": len(taboo.CARDS),
+    }
+    if tb["phase"] == "ready":
+        out["readyUntil"] = tb["readyUntil"]
+    if tb["phase"] == "turn":
+        out["card"] = tb["card"]
+    if tb["phase"] in ("turnend", "gameover"):
+        out["lastTurnTeam"] = tb["activeTeam"]
+    if tb["phase"] == "gameover":
+        s1, s2 = tb["scores"]["1"], tb["scores"]["2"]
+        out["winner"] = 1 if s1 > s2 else (2 if s2 > s1 else 0)
+    return out
+
+
 def public_state():
     """State shaped for the clients (players as a sorted list, no timestamps)."""
     players = [
         {"pid": pid, "name": p["name"], "color": p["color"],
-         "taps": p["taps"], "score": p["score"]}
+         "taps": p["taps"], "score": p["score"], "team": p.get("team")}
         for pid, p in state["players"].items()
     ]
     players.sort(key=lambda p: p["pid"])
@@ -252,6 +320,7 @@ def public_state():
         "winnerPid": state["winner"],
         "players": players,
         "scat": _scat_public() if state["game"] == "scattergories" else None,
+        "taboo": _taboo_public() if state["game"] == "taboo" else None,
     }
 
 
@@ -291,6 +360,18 @@ def janitor():
                 scat["phase"] = "review"
                 scat["reviewIndex"] = 0
                 changed = True
+
+            # Taboo: run the pre-turn countdown, and end a turn on time-out
+            tb = state["taboo"]
+            if (state["game"] == "taboo" and tb["phase"] == "ready"
+                    and tb["readyUntil"] and time.time() >= tb["readyUntil"]):
+                _taboo_start_turn()
+                changed = True
+            if (state["game"] == "taboo" and tb["phase"] == "turn"
+                    and tb["endsAt"] and time.time() >= tb["endsAt"]):
+                tb["phase"] = "turnend"
+                tb["card"] = None
+                changed = True
             if ticks % 3 == 0 and reap_players():
                 changed = True
             if changed:
@@ -304,8 +385,14 @@ def do_join(name):
         _next_pid[0] += 1
         color = COLORS[(pid - 1) % len(COLORS)]
         name = (name or "").strip()[:14] or f"Player {pid}"
+        team = None
+        if state["game"] == "taboo":
+            # auto-split arrivals across the two teams (they can switch in the lobby)
+            c1 = sum(1 for p in state["players"].values() if p.get("team") == 1)
+            c2 = sum(1 for p in state["players"].values() if p.get("team") == 2)
+            team = 1 if c1 <= c2 else 2
         state["players"][pid] = {
-            "name": name, "color": color, "taps": 0, "score": 0,
+            "name": name, "color": color, "taps": 0, "score": 0, "team": team,
             "last_seen": time.time(),
         }
         broadcast()
@@ -328,8 +415,26 @@ def do_select(game):
         state["scat"]["time"] = keep["time"]
         state["scat"]["showNames"] = keep["showNames"]
         state["scat"]["alliterationBonus"] = keep["alliterationBonus"]
+
+        keptb = state["taboo"]
+        state["taboo"] = fresh_taboo()
+        state["taboo"]["turnSeconds"] = keptb["turnSeconds"]
+        state["taboo"]["buzzScoresPoint"] = keptb["buzzScoresPoint"]
+        state["taboo"]["teamNames"] = keptb["teamNames"]
+        if game == "taboo":
+            _taboo_autoteam()
+        else:
+            for pl in state["players"].values():
+                pl["team"] = None
         broadcast()
         return {"ok": True, "game": game}
+
+
+def _taboo_autoteam():
+    """Spread everyone across the two teams as evenly as we can."""
+    pids = sorted(state["players"])
+    for i, pid in enumerate(pids):
+        state["players"][pid]["team"] = 1 if i % 2 == 0 else 2
 
 
 # ------------------------------------------------------- scattergories actions ---
@@ -467,6 +572,157 @@ def do_scat(pid, action, data):
     return {"ok": False, "error": "unknown_action"}
 
 
+# --------------------------------------------------------------- taboo actions ---
+def _taboo_deal_card():
+    tb = state["taboo"]
+    if not tb["deck"] or tb["deckPos"] >= len(tb["deck"]):
+        tb["deck"] = taboo.shuffled_deck()
+        tb["deckPos"] = 0
+    idx = tb["deck"][tb["deckPos"]]
+    tb["deckPos"] += 1
+    tb["cardSeq"] += 1
+    c = taboo.CARDS[idx]
+    tb["card"] = {"word": c["word"], "taboo": c["taboo"], "seq": tb["cardSeq"]}
+
+
+def _taboo_begin_ready():
+    """Show the 'get ready' countdown before a turn actually starts."""
+    tb = state["taboo"]
+    tb["phase"] = "ready"
+    tb["readyUntil"] = time.time() + TABOO_READY_SECONDS
+    tb["card"] = None
+
+
+def _taboo_start_turn():
+    tb = state["taboo"]
+    tb["phase"] = "turn"
+    tb["readyUntil"] = None
+    tb["endsAt"] = time.time() + max(15, int(tb["turnSeconds"]))
+    tb["turnPoints"] = {"1": 0, "2": 0}
+    tb["turnLog"] = []
+    tb["lastAction"] = None
+    _taboo_deal_card()
+
+
+def _taboo_advance(result, scoring_team):
+    """Log the card just resolved, award any point, deal the next one."""
+    tb = state["taboo"]
+    tb["turnLog"].append({"word": tb["card"]["word"], "result": result})
+    if scoring_team:
+        k = str(scoring_team)
+        tb["scores"][k] += 1
+        tb["turnPoints"][k] += 1
+    tb["lastAction"] = {"type": result, "team": scoring_team, "seq": tb["cardSeq"]}
+    _taboo_deal_card()
+
+
+def do_taboo(pid, action, data):
+    """Handle a taboo* action. Caller holds _lock. pid may be None for host acts."""
+    tb = state["taboo"]
+
+    if action == "tabooSet":
+        key, value = data.get("key"), data.get("value")
+        if key == "turnSeconds":
+            try:
+                tb["turnSeconds"] = min(300, max(15, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "bad_value"}
+        elif key == "buzzScoresPoint":
+            tb["buzzScoresPoint"] = bool(value)
+        elif key in ("team1Name", "team2Name"):
+            slot = "1" if key == "team1Name" else "2"
+            tb["teamNames"][slot] = (str(value or "").strip()[:16]
+                                     or f"Team {slot}")
+        else:
+            return {"ok": False, "error": "bad_key"}
+        broadcast()
+        return {"ok": True}
+
+    if action == "tabooStart":
+        if tb["phase"] in ("lobby", "gameover"):
+            tb["scores"] = {"1": 0, "2": 0}
+            tb["activeTeam"] = tb["startTeam"]
+            tb["deck"] = taboo.shuffled_deck()
+            tb["deckPos"] = 0
+            _taboo_begin_ready()
+            broadcast()
+        return {"ok": True}
+
+    if action == "tabooNextTurn":
+        if tb["phase"] == "turnend":
+            tb["activeTeam"] = 2 if tb["activeTeam"] == 1 else 1
+            _taboo_begin_ready()
+            broadcast()
+        return {"ok": True}
+
+    if action == "tabooBeginTurn":     # host skips the countdown
+        if tb["phase"] == "ready":
+            _taboo_start_turn()
+            broadcast()
+        return {"ok": True}
+
+    if action == "tabooEndTurn":     # timer ran out (or host cut it short)
+        if tb["phase"] == "turn":
+            tb["phase"] = "turnend"
+            tb["card"] = None
+            broadcast()
+        return {"ok": True}
+
+    if action == "tabooEndGame":
+        if tb["phase"] in ("turn", "turnend"):
+            tb["phase"] = "gameover"
+            tb["card"] = None
+            broadcast()
+        return {"ok": True}
+
+    if action == "tabooNewGame":
+        if tb["phase"] == "gameover":
+            tb["startTeam"] = 2 if tb["startTeam"] == 1 else 1
+            tb["scores"] = {"1": 0, "2": 0}
+            tb["phase"] = "lobby"
+            broadcast()
+        return {"ok": True}
+
+    # -- player actions need a valid pid + team --
+    p = state["players"].get(pid)
+    if not p:
+        return {"ok": False, "error": "not_joined"}
+    p["last_seen"] = time.time()
+
+    if action == "tabooTeam":
+        if tb["phase"] in ("lobby", "turnend", "gameover"):
+            t = data.get("team")
+            if t in (1, 2):
+                p["team"] = t
+                broadcast()
+        return {"ok": True}
+
+    if action in ("tabooGot", "tabooSkip", "tabooBuzz"):
+        if tb["phase"] != "turn" or not tb["card"]:
+            return {"ok": True}
+        # ignore a tap aimed at a card we've already moved past
+        if data.get("seq") != tb["card"]["seq"]:
+            return {"ok": True, "stale": True}
+        team = p.get("team")
+        if team not in (1, 2):
+            return {"ok": False, "error": "no_team"}
+        if action == "tabooBuzz":
+            if team == tb["activeTeam"]:
+                return {"ok": False, "error": "cant_buzz_own"}
+            _taboo_advance("buzz", team if tb["buzzScoresPoint"] else None)
+        else:
+            if team != tb["activeTeam"]:
+                return {"ok": False, "error": "not_your_turn"}
+            if action == "tabooGot":
+                _taboo_advance("got", tb["activeTeam"])
+            else:
+                _taboo_advance("skip", None)
+        broadcast()
+        return {"ok": True}
+
+    return {"ok": False, "error": "unknown_action"}
+
+
 def do_input(data):
     pid, action = data.get("pid"), data.get("action")
     with _lock:
@@ -478,6 +734,9 @@ def do_input(data):
 
         if isinstance(action, str) and action.startswith("scat"):
             return do_scat(pid, action, data)
+
+        if isinstance(action, str) and action.startswith("taboo"):
+            return do_taboo(pid, action, data)
 
         # start / reset are game-wide controls — the laptop screen or any
         # phone can trigger them, so they don't require a valid player id.

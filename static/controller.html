@@ -16,7 +16,7 @@
     -webkit-user-select: none; user-select: none;
     overflow-x: hidden;
   }
-  #scat *, #game * { min-width: 0; }
+  #scat *, #game *, #taboo * { min-width: 0; }
   [hidden] { display: none !important; }
   h1 { margin-top: 1.25rem; font-size: 1.6rem; letter-spacing: -0.02em; text-align: center; }
   h1 span { color: #38bdf8; }
@@ -99,6 +99,59 @@
   .pill { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border: 1px solid currentColor; border-radius: 999px; padding: 0.1rem 0.45rem; }
   .sc-done-big { text-align: center; padding: 2rem 1rem; }
   .sc-done-big .n { font-size: 2.5rem; font-weight: 800; color: #4ade80; }
+
+  /* --- Taboo --- */
+  #taboo { width: 100%; max-width: 480px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; }
+  .tb-hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.8rem 0; border-bottom: 1px solid #1e293b;
+    position: sticky; top: 0; background: #0b1120; z-index: 2;
+  }
+  .tb-hdr .t { font-weight: 700; }
+  .tb-hdr .tm { font-variant-numeric: tabular-nums; font-size: 1.4rem; font-weight: 800; }
+  .tb-hdr .tm.low { color: #f87171; }
+
+  .tbc-card {
+    background: #f8fafc; color: #0b1120; border-radius: 1rem;
+    padding: 1.25rem 1rem 1.5rem; text-align: center; margin: 1rem 0;
+  }
+  .tbc-card .g { font-size: clamp(1.8rem, 9vw, 2.6rem); font-weight: 900; text-transform: uppercase; word-break: break-word; }
+  .tbc-card hr { border: 0; border-top: 2px solid #0b1120; width: 55%; margin: 0.7rem auto; }
+  .tbc-card .l { font-size: 0.7rem; letter-spacing: 0.2em; font-weight: 800; color: #64748b; }
+  .tbc-card ul { list-style: none; margin-top: 0.4rem; }
+  .tbc-card li { font-size: clamp(1rem, 4.5vw, 1.4rem); font-weight: 700; color: #dc2626; padding: 0.1rem 0; }
+
+  .tb-big {
+    width: 100%; border: 0; border-radius: 1.25rem; font-weight: 900; color: #fff;
+    padding: 1.5rem 1rem; font-size: 1.8rem; letter-spacing: 0.03em; cursor: pointer;
+    box-shadow: inset 0 -8px 0 rgba(0,0,0,0.25); touch-action: manipulation;
+    transition: transform 0.05s ease, filter 0.05s ease;
+  }
+  .tb-big:active { transform: scale(0.98); filter: brightness(1.12); }
+  .tb-big.got { background: #16a34a; }
+  .tb-big.buzz { background: #dc2626; }
+  .tb-big:disabled { filter: grayscale(0.5) brightness(0.55); }
+  .tb-skip {
+    width: 100%; margin-top: 0.8rem; background: #1e293b; color: #e2e8f0;
+    border: 1px solid #334155; border-radius: 0.9rem; padding: 0.9rem;
+    font: inherit; font-weight: 700; font-size: 1.05rem; cursor: pointer;
+  }
+  .tb-skip:disabled { opacity: 0.5; }
+
+  .tb-teambtns { display: flex; flex-direction: column; gap: 1rem; margin: auto 0; }
+  .tb-teambtns p { text-align: center; color: #94a3b8; }
+  .tb-teambtns button {
+    padding: 1.5rem; border-radius: 1rem; border: 2px solid #334155;
+    background: #111827; color: #e2e8f0; font: inherit; font-size: 1.4rem; font-weight: 800; cursor: pointer;
+  }
+  .tb-teambtns button.sel { border-color: #38bdf8; background: #0e1b2e; }
+
+  .tb-msg { text-align: center; color: #94a3b8; margin: auto 0; padding: 2rem 1rem; }
+  .tb-msg .big { font-size: 1.7rem; font-weight: 800; color: #e2e8f0; margin-bottom: 0.5rem; }
+  .tb-cready-num {
+    font-size: 5.5rem; font-weight: 900; line-height: 1; color: #38bdf8;
+    font-variant-numeric: tabular-nums; margin: 0.75rem 0;
+  }
 </style>
 </head>
 <body>
@@ -153,6 +206,59 @@
     </div>
   </div>
 
+  <!-- ===== TABOO ===== -->
+  <div id="taboo" hidden>
+    <div class="tb-hdr" id="tb-hdr" hidden>
+      <span class="t" id="tb-hdr-t">Team 1's turn</span>
+      <span class="tm" id="tb-hdr-tm">1:00</span>
+    </div>
+
+    <div class="tbc-card" id="tb-card" hidden>
+      <div class="g" id="tb-card-g">DOG</div>
+      <hr>
+      <div class="l">DON'T SAY</div>
+      <ul id="tb-card-list"></ul>
+    </div>
+
+    <div id="tb-noteam" class="tb-teambtns" hidden>
+      <p>Which team's phone is this?</p>
+      <button type="button" data-team="1">Team 1</button>
+      <button type="button" data-team="2">Team 2</button>
+    </div>
+
+    <div id="tb-wait" class="tb-msg" hidden>
+      <div class="big" id="tb-wait-team">You're on Team 1</div>
+      <p id="tb-wait-sub">Waiting for the host to start…</p>
+      <button class="tb-skip" id="tb-switch" type="button" style="margin-top:1.5rem;max-width:14rem;margin-left:auto;margin-right:auto">Switch team</button>
+    </div>
+
+    <div id="tb-clue" hidden style="margin-top:auto">
+      <button class="tb-big got" id="tb-got" type="button">✓ GOT IT</button>
+      <button class="tb-skip" id="tb-skip" type="button">Skip this card →</button>
+    </div>
+
+    <div id="tb-buzz" hidden style="margin-top:auto">
+      <p style="text-align:center;color:#94a3b8;margin-bottom:0.75rem" id="tb-buzz-hint">Tap if they say a word on the card</p>
+      <button class="tb-big buzz" id="tb-buzzbtn" type="button">🔔 TABOO!</button>
+    </div>
+
+    <div id="tb-cready" class="tb-msg" hidden>
+      <div class="big" id="tb-cready-t">Get ready!</div>
+      <div class="tb-cready-num" id="tb-cready-num">5</div>
+      <p id="tb-cready-role">Next turn starting…</p>
+    </div>
+
+    <div id="tb-cend" class="tb-msg" hidden>
+      <div class="big" id="tb-cend-t">Team 1 scored +0</div>
+      <p>Waiting for the host…</p>
+    </div>
+
+    <div id="tb-cover" class="tb-msg" hidden>
+      <div class="big" id="tb-cover-t">Team 1 wins!</div>
+      <p id="tb-cover-s"></p>
+    </div>
+  </div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -194,8 +300,9 @@ function setView(game) {
   if (game === currentGame) return;
   currentGame = game;
   $("game").classList.toggle("on", game === "tap-race");
-  $("waiting").hidden = game === "tap-race" || game === "scattergories";
   $("scat").hidden = game !== "scattergories";
+  $("taboo").hidden = game !== "taboo";
+  $("waiting").hidden = ["tap-race", "scattergories", "taboo"].includes(game);
 }
 
 // ---- sending input ----
@@ -364,6 +471,126 @@ function renderScat(s) {
   }
 }
 
+// ================= TABOO =================
+let tbMyTeam = null, tbSeq = -1, tbActedSeq = -1, tbPhase = null, tbcRAF = null, tbcReadyRAF = null;
+
+function tbcReadyTick(tb) {
+  if (tbcReadyRAF) cancelAnimationFrame(tbcReadyRAF);
+  const loop = () => {
+    if (tbPhase !== "ready") return;
+    const remain = (tb.readyUntil * 1000 - (Date.now() + clockOffset)) / 1000;
+    $("tb-cready-num").textContent = remain <= 0.2 ? "GO!" : Math.max(1, Math.ceil(remain));
+    if (remain <= -0.5) return;
+    tbcReadyRAF = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function tbTickC(tb) {
+  if (tbcRAF) cancelAnimationFrame(tbcRAF);
+  const loop = () => {
+    if (tbPhase !== "turn") return;
+    const remain = (tb.endsAt * 1000 - (Date.now() + clockOffset)) / 1000;
+    const el = $("tb-hdr-tm");
+    el.textContent = fmt(remain);
+    el.classList.toggle("low", remain <= 10);
+    tbcRAF = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function tbAct(action) {
+  if (tbActedSeq === tbSeq) return;
+  tbActedSeq = tbSeq;
+  $("tb-got").disabled = true;
+  $("tb-skip").disabled = true;
+  $("tb-buzzbtn").disabled = true;
+  send(action, { seq: tbSeq });
+}
+
+$("tb-got").addEventListener("click", () => tbAct("tabooGot"));
+$("tb-skip").addEventListener("click", () => tbAct("tabooSkip"));
+$("tb-buzzbtn").addEventListener("click", () => {
+  tbAct("tabooBuzz");
+  if (navigator.vibrate) navigator.vibrate(35);
+});
+document.querySelectorAll("#tb-noteam button").forEach(b =>
+  b.addEventListener("click", () => send("tabooTeam", { team: +b.dataset.team })));
+$("tb-switch").addEventListener("click", () => send("tabooTeam", { team: tbMyTeam === 1 ? 2 : 1 }));
+
+function renderTaboo(s) {
+  const tb = s.taboo; if (!tb) return;
+  clockOffset = tb.serverNow * 1000 - Date.now();
+  tbPhase = tb.phase;
+  const me = s.players.find(p => p.pid === pid);
+  tbMyTeam = me ? me.team : null;
+  const nameOf = (t) => tb.teamNames[String(t)];
+  const other = (t) => (t === 1 ? 2 : 1);
+
+  const inTurn = tb.phase === "turn";
+  $("tb-hdr").hidden = !inTurn;
+  $("tb-card").hidden = !inTurn;
+  ["tb-noteam", "tb-wait", "tb-clue", "tb-buzz", "tb-cready", "tb-cend", "tb-cover"].forEach(id => $(id).hidden = true);
+
+  if (tb.phase === "ready") {
+    $("tb-cready").hidden = false;
+    const mine = tbMyTeam === tb.activeTeam;
+    $("tb-cready-role").textContent = tbMyTeam == null
+      ? "Next turn starting…"
+      : mine ? "Your team is guessing — hold this phone!" : "Get ready to catch taboo words";
+    tbcReadyTick(tb);
+    return;
+  }
+
+  if (inTurn) {
+    tbSeq = tb.card.seq;
+    const acted = tbActedSeq === tbSeq;
+    $("tb-hdr-t").textContent = tbMyTeam === tb.activeTeam ? "Your team is guessing" : nameOf(tb.activeTeam) + " is guessing";
+    $("tb-card-g").textContent = tb.card.word;
+    $("tb-card-list").innerHTML = tb.card.taboo.map(w => `<li>${esc(w)}</li>`).join("");
+    tbTickC(tb);
+
+    if (tbMyTeam === tb.activeTeam) {
+      $("tb-clue").hidden = false;
+      $("tb-got").disabled = acted;
+      $("tb-skip").disabled = acted;
+    } else if (tbMyTeam === other(tb.activeTeam)) {
+      $("tb-buzz").hidden = false;
+      $("tb-buzzbtn").disabled = acted;
+      $("tb-buzz-hint").textContent = acted ? "Next card…" : "Tap if they say a word on the card";
+    } else {
+      $("tb-wait").hidden = false;
+      $("tb-wait-team").textContent = "Spectating";
+      $("tb-wait-sub").textContent = "You'll be able to pick a team between turns.";
+      $("tb-switch").hidden = true;
+    }
+    return;
+  }
+
+  if (tb.phase === "lobby") {
+    if (tbMyTeam == null) {
+      $("tb-noteam").hidden = false;
+    } else {
+      $("tb-wait").hidden = false;
+      $("tb-switch").hidden = false;
+      $("tb-wait-team").textContent = "You're on " + nameOf(tbMyTeam);
+      $("tb-wait-team").style.color = tbMyTeam === 1 ? "#f87171" : "#38bdf8";
+      $("tb-wait-sub").textContent = "Waiting for the host to start the game…";
+      $("tb-switch").textContent = "Switch to " + nameOf(other(tbMyTeam));
+    }
+  } else if (tb.phase === "turnend") {
+    $("tb-cend").hidden = false;
+    const team = tb.lastTurnTeam;
+    $("tb-cend-t").textContent = `${nameOf(team)} scored +${tb.turnPoints[String(team)]}`;
+  } else if (tb.phase === "gameover") {
+    $("tb-cover").hidden = false;
+    $("tb-cover-t").textContent = tb.winner === 0
+      ? "It's a tie!"
+      : (tbMyTeam === tb.winner ? "Your team wins! 🏆" : nameOf(tb.winner) + " wins");
+    $("tb-cover-s").textContent = `${nameOf(1)} ${tb.scores["1"]} — ${tb.scores["2"]} ${nameOf(2)}`;
+  }
+}
+
 // ---- keep-alive + polling ----
 function startLoops() {
   requestAnimationFrame(flushTaps);
@@ -387,12 +614,16 @@ async function pollState() {
       paintTap(s);
     } else if (s.game === "scattergories") {
       renderScat(s);
+    } else if (s.game === "taboo") {
+      renderTaboo(s);
     }
   } catch (e) {}
   setTimeout(pollState, s_poll_delay());
 }
 function s_poll_delay() {
-  return (currentGame === "scattergories" && scPhase === "review") ? 700 : 500;
+  if (currentGame === "scattergories" && scPhase === "review") return 700;
+  if (currentGame === "taboo" && (tbPhase === "turn" || tbPhase === "ready")) return 350;
+  return 500;
 }
 </script>
 </body>
