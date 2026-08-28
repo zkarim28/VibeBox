@@ -7,19 +7,21 @@
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; overscroll-behavior: none; }
+  html, body { min-height: 100%; overscroll-behavior: none; }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: #0b1120; color: #e2e8f0;
-    display: flex; flex-direction: column; align-items: center;
+    display: flex; flex-direction: column; align-items: stretch;
     padding: env(safe-area-inset-top) 1rem env(safe-area-inset-bottom);
-    user-select: none; -webkit-user-select: none;
+    -webkit-user-select: none; user-select: none;
+    overflow-x: hidden;
   }
-  h1 { margin-top: 1.5rem; font-size: 1.75rem; letter-spacing: -0.02em; }
+  #scat *, #game * { min-width: 0; }
+  [hidden] { display: none !important; }
+  h1 { margin-top: 1.25rem; font-size: 1.6rem; letter-spacing: -0.02em; text-align: center; }
   h1 span { color: #38bdf8; }
 
-  /* join screen */
-  .join { margin-top: auto; margin-bottom: auto; width: 100%; max-width: 360px; text-align: center; }
+  .join { margin: auto; width: 100%; max-width: 360px; text-align: center; }
   .join input {
     width: 100%; font-size: 1.25rem; padding: 0.9rem 1rem; border-radius: 0.8rem;
     border: 1px solid #334155; background: #111827; color: #e2e8f0; text-align: center;
@@ -28,38 +30,75 @@
     width: 100%; margin-top: 1rem; font-size: 1.15rem; font-weight: 700;
     padding: 0.9rem 1rem; border-radius: 0.8rem; border: 0; background: #38bdf8; color: #0b1120;
   }
+  .act.secondary { background: #1e293b; color: #e2e8f0; }
   .err { color: #f87171; margin-top: 0.75rem; min-height: 1.2em; font-size: 0.95rem; }
 
-  /* play screen */
-  #game { display: none; width: 100%; max-width: 460px; flex: 1; flex-direction: column; }
+  #game { display: none; width: 100%; max-width: 460px; margin: 0 auto; flex: 1; flex-direction: column; }
   #game.on { display: flex; }
   .me { margin-top: 1rem; text-align: center; }
   .me .who { font-size: 1.5rem; font-weight: 800; }
   .me .status { color: #94a3b8; margin-top: 0.25rem; min-height: 1.4em; }
   .progress { height: 0.9rem; margin-top: 0.75rem; background: #1e293b; border-radius: 999px; overflow: hidden; }
   .progress > div { height: 100%; width: 0; transition: width 0.1s linear; }
-
   .tap {
-    flex: 1; margin: 1.5rem 0; width: 100%;
-    border-radius: 1.5rem; border: 0;
-    font-size: 3rem; font-weight: 900; letter-spacing: 0.05em;
-    color: #0b1120;
+    flex: 1; margin: 1.5rem 0; width: 100%; border-radius: 1.5rem; border: 0;
+    font-size: 3rem; font-weight: 900; letter-spacing: 0.05em; color: #0b1120;
     box-shadow: inset 0 -8px 0 rgba(0,0,0,0.25);
-    transition: transform 0.05s ease, filter 0.05s ease;
-    touch-action: manipulation;
+    transition: transform 0.05s ease, filter 0.05s ease; touch-action: manipulation;
   }
   .tap:active { transform: scale(0.97); filter: brightness(1.15); }
   .tap:disabled { filter: grayscale(0.6) brightness(0.6); }
 
-  .act.secondary { background: #1e293b; color: #e2e8f0; }
-
   #waiting { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 0.75rem; padding: 2rem 1rem; }
-  #waiting[hidden] { display: none; }
   .wait-badge { font-size: 1.6rem; font-weight: 800; color: #4ade80; }
-  .wait-sub { color: #94a3b8; max-width: 18rem; }
+  .wait-sub { color: #94a3b8; max-width: 20rem; }
 
   :where(button, input, [tabindex]):focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+  /* --- Scattergories --- */
+  #scat { width: 100%; max-width: 520px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; }
+  .sc-top {
+    display: flex; align-items: center; gap: 0.75rem; padding: 0.9rem 0 0.75rem;
+    position: sticky; top: 0; background: #0b1120; z-index: 2; border-bottom: 1px solid #1e293b;
+  }
+  .sc-circle {
+    width: 52px; height: 52px; border-radius: 50%; border: 2px dashed #cbd5e1;
+    display: grid; place-items: center; font-size: 1.6rem; font-weight: 800; flex: none;
+  }
+  .sc-top .lbl { color: #94a3b8; font-size: 0.9rem; }
+  .sc-timer { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 1.5rem; font-weight: 700; }
+  .sc-timer.low { color: #f87171; }
+
+  .sc-form { flex: 1; padding: 0.75rem 0 2rem; }
+  .sc-field { padding: 0.7rem 0; border-bottom: 1px solid #1e293b; }
+  .sc-field label { display: block; font-size: 0.9rem; color: #94a3b8; margin-bottom: 0.35rem; }
+  .sc-field label b { color: #64748b; font-weight: 700; margin-right: 0.4rem; }
+  .sc-field input {
+    width: 100%; font-size: 1.1rem; padding: 0.6rem 0.7rem; border-radius: 0.6rem;
+    border: 1px solid #334155; background: #111827; color: #e2e8f0;
+  }
+
+  .sc-msg { text-align: center; color: #94a3b8; padding: 1.5rem 1rem; }
+  .sc-catname { font-size: 1.35rem; font-weight: 700; text-align: center; margin: 1rem 0 0.25rem; }
+  .sc-of { text-align: center; color: #64748b; font-size: 0.9rem; }
+  .vote {
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+    padding: 0.8rem 0; border-bottom: 1px solid #1e293b;
+  }
+  .vote .txt { flex: 1; min-width: 6rem; font-size: 1.15rem; }
+  .vote.elim .txt { text-decoration: line-through; color: #64748b; }
+  .vote.mine { color: #94a3b8; }
+  .vote .who { font-weight: 700; font-size: 0.85rem; }
+  .vbtn {
+    border: 1px solid #334155; background: #111827; color: #e2e8f0;
+    font: inherit; font-weight: 700; padding: 0.5rem 0.9rem; border-radius: 0.55rem; cursor: pointer;
+  }
+  .vbtn.yes.on { background: #16a34a; border-color: #16a34a; color: #fff; }
+  .vbtn.no.on  { background: #dc2626; border-color: #dc2626; color: #fff; }
+  .pill { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border: 1px solid currentColor; border-radius: 999px; padding: 0.1rem 0.45rem; }
+  .sc-done-big { text-align: center; padding: 2rem 1rem; }
+  .sc-done-big .n { font-size: 2.5rem; font-weight: 800; color: #4ade80; }
 </style>
 </head>
 <body>
@@ -77,21 +116,47 @@
     <p class="wait-sub">Waiting for the host to choose a game on the big screen…</p>
   </div>
 
+  <!-- ===== TAP RACE ===== -->
   <div id="game">
     <div class="me">
       <div class="who" id="who">–</div>
       <div class="status" id="status" role="status" aria-live="polite">Waiting…</div>
       <div class="progress"><div id="pbar"></div></div>
     </div>
-
     <button class="tap" id="tap" disabled>TAP</button>
-
     <button class="act" id="start">Start race</button>
     <button class="act secondary" id="reset">Back to lobby</button>
   </div>
 
+  <!-- ===== SCATTERGORIES ===== -->
+  <div id="scat" hidden>
+    <div class="sc-top">
+      <div class="sc-circle" id="sc-letter">S</div>
+      <div><div class="lbl" id="sc-hint">Scattergories</div></div>
+      <div class="sc-timer" id="sc-timer" hidden>2:00</div>
+    </div>
+
+    <div id="sc-wait" class="sc-msg" hidden>Waiting for the host to start the round…</div>
+
+    <form id="sc-form" class="sc-form" hidden autocomplete="off"></form>
+
+    <div id="sc-review" hidden>
+      <div class="sc-of" id="sc-rev-of">Category 1 of 12</div>
+      <div class="sc-catname" id="sc-rev-cat">…</div>
+      <div id="sc-rev-list"></div>
+      <div class="sc-msg" id="sc-rev-foot"></div>
+    </div>
+
+    <div id="sc-done" class="sc-done-big" hidden>
+      <div class="n" id="sc-done-n">+0</div>
+      <p class="wait-sub" id="sc-done-sub" style="margin:0.5rem auto 0">this round</p>
+    </div>
+  </div>
+
 <script>
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
 let pid = null, color = "#38bdf8", goal = 40, phase = "lobby", myTaps = 0;
 let myName = "", currentGame = undefined;
 
@@ -112,96 +177,60 @@ async function join() {
     $("who").style.color = color;
     $("wait-who").textContent = myName + " — you're in!";
     $("tap").style.background = color;
-    $("waiting").hidden = false;   // default until the first state poll
+    $("waiting").hidden = false;
     startLoops();
   } catch (e) {
     $("err").textContent = "Could not reach the game. Same WiFi as the laptop?";
   }
 }
-
-// show the waiting screen or the Tap Race controls depending on the host's pick
-function setView(game) {
-  if (game === currentGame) return;
-  currentGame = game;
-  const playing = game === "tap-race";
-  $("game").classList.toggle("on", playing);
-  $("waiting").hidden = playing;
-}
 $("join-btn").addEventListener("click", join);
 $("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
 
+// optional ?name=Foo to prefill / auto-join (handy for a quick rejoin bookmark)
+const _qsName = new URLSearchParams(location.search).get("name");
+if (_qsName) { $("name").value = _qsName.slice(0, 14); join(); }
+
+function setView(game) {
+  if (game === currentGame) return;
+  currentGame = game;
+  $("game").classList.toggle("on", game === "tap-race");
+  $("waiting").hidden = game === "tap-race" || game === "scattergories";
+  $("scat").hidden = game !== "scattergories";
+}
+
 // ---- sending input ----
-function send(action) {
+function send(action, extra) {
   return fetch("/input", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pid, action })
+    body: JSON.stringify(Object.assign({ pid, action }, extra || {}))
   }).then(r => r.json()).catch(() => ({}));
 }
 
-// buffer taps so a fast masher sends ~1 request per animation frame, not 1 per tap
+// ================= TAP RACE =================
 let pending = 0;
 function flushTaps() {
-  if (pending > 0 && phase === "playing") {
+  if (pending > 0 && currentGame === "tap-race" && phase === "playing") {
     const n = pending; pending = 0;
     for (let i = 0; i < n; i++) send("tap");
   }
   requestAnimationFrame(flushTaps);
 }
-
 function onTap(e) {
   e.preventDefault();
-  if (phase !== "playing") return;
-  pending++;
-  myTaps++;
-  paint();
+  if (currentGame !== "tap-race" || phase !== "playing") return;
+  pending++; myTaps++; paintTap();
   if (navigator.vibrate) navigator.vibrate(8);
 }
 $("tap").addEventListener("touchstart", onTap, { passive: false });
-$("tap").addEventListener("mousedown", onTap);   // works on a laptop too
-
+$("tap").addEventListener("mousedown", onTap);
 $("start").addEventListener("click", () => send("start"));
 $("reset").addEventListener("click", () => send("reset"));
 
-// ---- keep-alive ping + state polling ----
-function startLoops() {
-  requestAnimationFrame(flushTaps);
-  setInterval(() => send("ping"), 4000);
-  pollState();
-}
-async function pollState() {
-  try {
-    const s = await (await fetch("/state")).json();
-    const wasPlaying = phase === "playing";
-    phase = s.phase; goal = s.goal;
-    const me = s.players.find(p => p.pid === pid);
-    if (!me && pid) { location.reload(); return; }
-
-    setView(s.game);
-    if (s.game !== "tap-race") { setTimeout(pollState, 500); return; }
-
-    if (phase === "playing") {
-      // A fresh race just started, or the server reset our count: trust the
-      // server and drop leftover optimistic taps from the last game. A small
-      // gap (server a few behind our local count) is just in-flight taps —
-      // keep the optimistic number so mid-race tapping stays responsive.
-      if (!wasPlaying || me.taps < myTaps - 3) { myTaps = me.taps; pending = 0; }
-      else myTaps = Math.max(myTaps, me.taps);
-    } else {
-      myTaps = me ? me.taps : 0;
-      pending = 0;
-    }
-    paint(s);
-  } catch (e) {}
-  setTimeout(pollState, 500);
-}
-
-function paint(s) {
+function paintTap(s) {
   const tap = $("tap");
   tap.disabled = phase !== "playing";
-  const pct = Math.min(100, (myTaps / goal) * 100);
-  $("pbar").style.width = pct + "%";
+  $("pbar").style.width = Math.min(100, (myTaps / goal) * 100) + "%";
   $("pbar").style.background = color;
-
   if (phase === "lobby") {
     $("status").textContent = "In the lobby — press Start when everyone's in";
     tap.textContent = "WAIT";
@@ -209,11 +238,161 @@ function paint(s) {
     $("status").textContent = myTaps + " / " + goal + "  —  GO!";
     tap.textContent = "TAP!";
   } else if (phase === "over") {
-    const win = s && s.winner ? s.winner : null;
     const iWon = s && s.winnerPid === pid;
-    $("status").textContent = iWon ? "🏆 You won!" : (win ? win + " won" : "Race over");
+    $("status").textContent = iWon ? "🏆 You won!" : (s && s.winner ? s.winner + " won" : "Race over");
     tap.textContent = iWon ? "🏆" : "DONE";
   }
+}
+
+// ================= SCATTERGORIES =================
+let scPhase = null, scEndsAt = 0, clockOffset = 0, scCats = [];
+let scDirty = false, scSendTimer = null;
+
+function scBuildForm(cats) {
+  $("sc-form").innerHTML = cats.map((c, i) => `
+    <div class="sc-field">
+      <label for="sc-in-${i}"><b>${String(i + 1).padStart(2, "0")}</b>${esc(c)}</label>
+      <input id="sc-in-${i}" data-i="${i}" type="text" maxlength="80"
+             autocapitalize="none" autocomplete="off" spellcheck="false" enterkeyhint="next">
+    </div>`).join("");
+  $("sc-form").querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("input", () => { scDirty = true; scScheduleSend(); });
+    inp.addEventListener("blur", scSendAnswers);
+  });
+}
+function scScheduleSend() {
+  if (scSendTimer) return;
+  scSendTimer = setTimeout(() => { scSendTimer = null; scSendAnswers(); }, 350);
+}
+function scSendAnswers() {
+  if (!scDirty || scPhase !== "playing") return;
+  scDirty = false;
+  const answers = {};
+  $("sc-form").querySelectorAll("input").forEach(inp => { answers[inp.dataset.i] = inp.value; });
+  send("scatAnswers", { answers });
+}
+window.addEventListener("visibilitychange", () => { if (document.hidden) scSendAnswers(); });
+
+function fmt(sec) {
+  sec = Math.max(0, Math.ceil(sec));
+  return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+}
+let scTimerRAF = null;
+function scTick() {
+  if (scTimerRAF) cancelAnimationFrame(scTimerRAF);
+  const loop = () => {
+    if (scPhase !== "playing") return;
+    const remain = (scEndsAt * 1000 - (Date.now() + clockOffset)) / 1000;
+    const el = $("sc-timer");
+    el.textContent = fmt(remain);
+    el.classList.toggle("low", remain <= 15);
+    scTimerRAF = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function renderScat(s) {
+  const sc = s.scat; if (!sc) return;
+  clockOffset = sc.serverNow * 1000 - Date.now();
+  const prevPhase = scPhase;
+  scPhase = sc.phase; scEndsAt = sc.endsAt || 0;
+
+  $("sc-letter").textContent = sc.letter || "S";
+  $("sc-wait").hidden   = sc.phase !== "lobby";
+  $("sc-form").hidden   = sc.phase !== "playing";
+  $("sc-review").hidden = sc.phase !== "review";
+  $("sc-done").hidden   = sc.phase !== "done";
+  $("sc-timer").hidden  = sc.phase !== "playing";
+
+  if (sc.phase === "lobby") {
+    $("sc-hint").textContent = "Get ready…";
+  }
+
+  if (sc.phase === "playing") {
+    $("sc-hint").textContent = "Start each answer with " + sc.letter;
+    if (prevPhase !== "playing" || scCats.join("|") !== sc.categories.join("|")) {
+      scCats = sc.categories.slice();
+      scBuildForm(scCats);
+    }
+    scTick();
+  }
+
+  if (sc.phase === "review") {
+    scSendAnswers();
+    $("sc-hint").textContent = "Vote on each answer";
+    $("sc-rev-of").textContent = `Category ${sc.reviewIndex + 1} of ${sc.reviewTotal}`;
+    $("sc-rev-cat").textContent = sc.category || "";
+    const ans = sc.answers || [];
+    const mineKey = String(pid);
+    if (!ans.length) {
+      $("sc-rev-list").innerHTML = "";
+      $("sc-rev-foot").textContent = "No answers for this one — waiting for the host…";
+    } else {
+      $("sc-rev-list").innerHTML = ans.map(a => {
+        const isMine = a.pid === pid;
+        const who = (sc.showNames && a.name) ? `<span class="who" style="color:${a.color}">${esc(a.name)}</span>` : "";
+        if (a.eliminated)
+          return `<div class="vote elim">${who}<span class="txt">${esc(a.text)}</span><span class="pill">duplicate</span></div>`;
+        if (isMine)
+          return `<div class="vote mine">${who}<span class="txt">${esc(a.text)}</span><span class="pill">your answer</span></div>`;
+        const mv = a.votes ? a.votes[mineKey] : undefined;
+        return `<div class="vote" data-target="${a.pid}">${who}
+          <span class="txt">${esc(a.text)}</span>
+          <button class="vbtn yes ${mv === true ? "on" : ""}" data-v="1" type="button">Yes</button>
+          <button class="vbtn no ${mv === false ? "on" : ""}" data-v="0" type="button">No</button>
+        </div>`;
+      }).join("");
+      $("sc-rev-list").querySelectorAll(".vbtn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const target = +btn.closest(".vote").dataset.target;
+          send("scatVote", { target, value: btn.dataset.v === "1" });
+        });
+      });
+      const votable = ans.filter(a => !a.eliminated && a.pid !== pid);
+      const voted = votable.filter(a => a.votes && mineKey in a.votes).length;
+      $("sc-rev-foot").textContent = voted >= votable.length
+        ? "All voted — waiting for the host to continue…"
+        : `Tap Yes or No for each  (${voted}/${votable.length})`;
+    }
+  }
+
+  if (sc.phase === "done") {
+    $("sc-hint").textContent = "Round over";
+    const mine = (sc.roundScores || []).find(r => r.pid === pid);
+    $("sc-done-n").textContent = "+" + (mine ? mine.points : 0);
+    $("sc-done-sub").textContent = mine ? `this round · ${mine.total} total` : "this round";
+  }
+}
+
+// ---- keep-alive + polling ----
+function startLoops() {
+  requestAnimationFrame(flushTaps);
+  setInterval(() => send("ping"), 4000);
+  pollState();
+}
+async function pollState() {
+  try {
+    const s = await (await fetch("/state", { cache: "no-store" })).json();
+    const wasPlaying = phase === "playing";
+    phase = s.phase; goal = s.goal;
+    const me = s.players.find(p => p.pid === pid);
+    if (!me && pid) { location.reload(); return; }
+    setView(s.game);
+
+    if (s.game === "tap-race") {
+      if (phase === "playing") {
+        if (!wasPlaying || me.taps < myTaps - 3) { myTaps = me.taps; pending = 0; }
+        else myTaps = Math.max(myTaps, me.taps);
+      } else { myTaps = me ? me.taps : 0; pending = 0; }
+      paintTap(s);
+    } else if (s.game === "scattergories") {
+      renderScat(s);
+    }
+  } catch (e) {}
+  setTimeout(pollState, s_poll_delay());
+}
+function s_poll_delay() {
+  return (currentGame === "scattergories" && scPhase === "review") ? 700 : 500;
 }
 </script>
 </body>
