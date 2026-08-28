@@ -78,6 +78,9 @@
     width: 100%; font-size: 1.1rem; padding: 0.6rem 0.7rem; border-radius: 0.6rem;
     border: 1px solid #334155; background: #111827; color: #e2e8f0;
   }
+  .sc-field input::placeholder {
+    color: #3b4a63; font-weight: 800; letter-spacing: 0.06em; opacity: 1;
+  }
 
   .sc-msg { text-align: center; color: #94a3b8; padding: 1.5rem 1rem; }
   .sc-catname { font-size: 1.35rem; font-weight: 700; text-align: center; margin: 1rem 0 0.25rem; }
@@ -375,14 +378,15 @@ function paintTap(s) {
 }
 
 // ================= SCATTERGORIES =================
-let scPhase = null, scEndsAt = 0, clockOffset = 0, scCats = [];
+let scPhase = null, scEndsAt = 0, clockOffset = 0, scCats = [], scLetter = null;
 let scDirty = false, scSendTimer = null;
 
-function scBuildForm(cats) {
+function scBuildForm(cats, letter) {
   $("sc-form").innerHTML = cats.map((c, i) => `
     <div class="sc-field">
       <label for="sc-in-${i}"><b>${String(i + 1).padStart(2, "0")}</b>${esc(c)}</label>
       <input id="sc-in-${i}" data-i="${i}" type="text" maxlength="80"
+             placeholder="${esc(letter || "")}"
              autocapitalize="none" autocomplete="off" spellcheck="false" enterkeyhint="next">
     </div>`).join("");
   $("sc-form").querySelectorAll("input").forEach(inp => {
@@ -440,9 +444,11 @@ function renderScat(s) {
 
   if (sc.phase === "playing") {
     $("sc-hint").textContent = "Start each answer with " + sc.letter;
-    if (prevPhase !== "playing" || scCats.join("|") !== sc.categories.join("|")) {
+    if (prevPhase !== "playing" || scLetter !== sc.letter
+        || scCats.join("|") !== sc.categories.join("|")) {
       scCats = sc.categories.slice();
-      scBuildForm(scCats);
+      scLetter = sc.letter;
+      scBuildForm(scCats, scLetter);
     }
     scTick();
   }
