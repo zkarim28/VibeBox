@@ -192,6 +192,11 @@
 const $ = (id) => document.getElementById(id);
 const announce = (msg) => { $("announce").textContent = ""; setTimeout(() => $("announce").textContent = msg, 30); };
 
+// the ?host= link has done its job (the cookie is set) — drop it from the bar
+if (/[?&]host=/.test(location.search)) {
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+}
+
 // --- build the game list ---
 async function loadGames() {
   let games;

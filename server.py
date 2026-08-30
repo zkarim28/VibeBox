@@ -15,11 +15,14 @@ import queue
 import re
 import secrets
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -873,12 +876,21 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     # -- helpers --
+    def _maybe_set_host_cookie(self):
+        """Re-issue the host cookie on every response to a valid ?host= link, so
+        reloading/bookmarking that link always unlocks — no fragile redirect."""
+        if getattr(self, "_grant_host", False):
+            self.send_header(
+                "Set-Cookie",
+                f"hosttoken={HOST_TOKEN}; Path=/; Max-Age=43200; SameSite=Lax")
+
     def _send_json(self, obj, code=200):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self._maybe_set_host_cookie()
         self.end_headers()
         self.wfile.write(body)
 
@@ -893,6 +905,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self._maybe_set_host_cookie()
         self.end_headers()
         self.wfile.write(body)
 
@@ -926,22 +939,18 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = parse_qs(parsed.query)
 
-        # unlock the laptop screens: ?host=<token> -> set cookie, drop the query
+        # unlock the laptop screens: ?host=<token> tells _send_file/_send_json to
+        # (re-)issue the host cookie on this response. No redirect — a redirect
+        # over a still-warming tunnel would land the host on the lock screen.
         tok = qs.get("host", [None])[0]
         if tok is not None:
-            if secrets.compare_digest(tok, HOST_TOKEN):
-                self.send_response(302)
-                self.send_header(
-                    "Set-Cookie",
-                    f"hosttoken={HOST_TOKEN}; Path=/; Max-Age=43200; SameSite=Lax")
-                self.send_header("Location", path or "/")
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-            else:
+            if not secrets.compare_digest(tok, HOST_TOKEN):
                 self.send_error(403, "bad host key")
-            return
+                return
+            self._grant_host = True
 
-        host = self._is_host()
+        host = self._grant_host if getattr(self, "_grant_host", False) \
+            else self._is_host()
 
         if path == "/":
             self._send_file("menu.html", "text/html; charset=utf-8")
@@ -1086,7 +1095,35 @@ def _start_tunnel(port):
         if proc.returncode not in (0, None):
             print("\n  ⚠  the Cloudflare tunnel stopped — remote players are cut off.")
     threading.Thread(target=_watch, daemon=True).start()
+
+    # cloudflared prints the URL several seconds to a minute before Cloudflare's
+    # edge can actually route to it (until then every request 530s). Wait for a
+    # real reply so we never hand out a link that fails on the first click —
+    # the host link is a one-shot ?token redirect and doesn't survive that.
+    print("  got the URL — waiting for the tunnel to come up…")
+    if _wait_url_live(url + "/games"):
+        print("  tunnel is live.")
+    else:
+        print("  still no response — using the link anyway; "
+              "give it a moment before opening, and reload if the first try fails.")
     return proc, url
+
+
+def _wait_url_live(url, timeout=60):
+    """Poll `url` until it answers with a non-5xx status, or give up."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=8) as r:
+                if r.status < 500:
+                    return True
+        except urllib.error.HTTPError as e:
+            if e.code < 500:
+                return True
+        except Exception:
+            pass
+        time.sleep(2)
+    return False
 
 
 def _banner(tunnel_on):
@@ -1110,39 +1147,98 @@ def _banner(tunnel_on):
     print(line + "\n")
 
 
+def _want_gui():
+    """A window pops up by default in an interactive run. Skip it when GUI=0 /
+    --no-gui, when MODE is preset (scripted), when there's no display, or when
+    output is piped and GUI wasn't explicitly requested."""
+    if os.environ.get("GUI", "").strip().lower() in ("0", "no", "false"):
+        return False
+    if "--no-gui" in sys.argv:
+        return False
+    if os.environ.get("MODE", "").strip().lower() in ("local", "public"):
+        return False
+    if not sys.stdout.isatty() and not os.environ.get("GUI"):
+        return False
+    try:
+        import tkinter  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
 def main():
     global PUBLIC_URL
     try:
         sys.stdout.reconfigure(line_buffering=True)   # show output even when piped
     except Exception:
         pass
+    # make sure Ctrl+C works even if a parent shell left SIGINT ignored
+    try:
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+    except (ValueError, OSError):
+        pass
 
     srv = ThreadingHTTPServer((HOST, PORT), Handler)   # binds + listens now
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     threading.Thread(target=janitor, daemon=True).start()
 
-    tunnel = None
+    hold = {"tunnel": None}   # (proc, url), so cleanup always finds it
+
+    def _set_public(url):
+        global PUBLIC_URL
+        PUBLIC_URL = url
+
+    def _cleanup():
+        srv.shutdown()
+        t = hold["tunnel"]
+        if t:
+            t[0].terminate()
+            try:
+                t[0].wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                t[0].kill()
+
+    if _want_gui():
+        try:
+            import gui
+        except Exception as exc:
+            print(f"  (control window unavailable: {exc} — using the terminal)")
+        else:
+            print("  opening the control window…\n")
+            ctx = {
+                "room_code": ROOM_CODE,
+                "already_public": bool(PUBLIC_URL),
+                "host_url": host_url,
+                "play_url": play_url,
+                "qr_png": lambda: qr_png_for_current_url()[0],
+                "start_tunnel": lambda: _start_tunnel(PORT),
+                "set_public_url": _set_public,
+                "set_tunnel": lambda t: hold.__setitem__("tunnel", t),
+                "banner": _banner,
+            }
+            try:
+                gui.run(ctx)
+            finally:
+                print("\n  bye\n")
+                _cleanup()
+            return
+
+    # ---- terminal-only fallback ----
     if not PUBLIC_URL and _ask_mode() == "public":
-        tunnel = _start_tunnel(PORT)
-        if tunnel:
-            PUBLIC_URL = tunnel[1]
+        t = _start_tunnel(PORT)
+        if t:
+            PUBLIC_URL = t[1]
+            hold["tunnel"] = t
         else:
             print("  → running LOCAL instead.")
-
-    _banner(tunnel is not None)
+    _banner(hold["tunnel"] is not None)
     try:
         while True:
             time.sleep(3600)
     except KeyboardInterrupt:
         print("\n  bye\n")
     finally:
-        srv.shutdown()
-        if tunnel:
-            tunnel[0].terminate()
-            try:
-                tunnel[0].wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                tunnel[0].kill()
+        _cleanup()
 
 
 if __name__ == "__main__":

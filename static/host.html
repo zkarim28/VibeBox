@@ -425,6 +425,11 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+// drop the one-time ?host= token from the address bar once we're in
+if (/[?&]host=/.test(location.search)) {
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+}
 const post = (body) => fetch("/input", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) }).catch(()=>{});
 
 // ---- shared join address + QR ----

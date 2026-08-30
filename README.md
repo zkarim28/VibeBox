@@ -57,19 +57,26 @@ returns to the lobby.
 python3 server.py
 ```
 
-It asks **Local or Public** (see below), then prints a **host link** and a
-**room code**, e.g.
+A small **control window** pops up (needs Tkinter — standard on the python.org
+build). It asks **Local or Public**, then shows:
 
-```
-HOST — open this to unlock the laptop screen (one click):
-    http://192.168.1.24:8000/?host=Xk3n-9f...
-Players join at:   http://192.168.1.24:8000/play?code=WXYZ
-Room code:         WXYZ
-```
+- the **host link** with an *Open in browser* button (one click to unlock the
+  laptop screen),
+- the **players-join link** + **room code**,
+- the join **QR**,
+- a **Quit** button.
 
-1. **Open the host link** on your laptop. It sets a cookie and drops you on the
-   menu — that browser is now the "host". Any browser without that cookie sees a
-   "screen locked" page, so a stray player can't hijack the game.
+The same details are also printed to the terminal. Close the window or press
+**Ctrl+C** to stop everything (and the tunnel, if running).
+
+No window: run with `--no-gui`, `GUI=0`, or set `MODE=local|public` — then it
+falls back to the terminal prompt.
+
+### The flow
+
+1. **Open the host link** (button in the window, or the terminal link). It sets
+   a cookie — that browser is now the "host". Any browser without the cookie
+   sees a "screen locked" page, so a stray player can't hijack the game.
 2. Players open **/play** (or scan the QR — it carries the code), type a name +
    the **room code**, tap **Join**.
 3. On the laptop, pick a game. Players' phones switch to that controller.
@@ -77,36 +84,28 @@ Room code:         WXYZ
 
 ### Playing over the internet
 
-On start it asks:
+Pick **Public** (window button, or `P` at the terminal prompt) and it runs
+`cloudflared` for you, grabs the `https://…trycloudflare.com` URL, and rewrites
+the QR / join link / host link to use it. Quitting stops the tunnel too. Needs
+`cloudflared` on PATH (`brew install cloudflared`); if it's missing or the
+tunnel fails, the window offers "Run Local instead".
 
-```
-  How do you want to run?
-    [L] Local  — phones on the same WiFi only            (default)
-    [P] Public — anyone with the link + room code, via a Cloudflare tunnel
-
-  Choose L or P:
-```
-
-Pick **P** and it runs `cloudflared` for you, grabs the `https://…trycloudflare.com`
-URL, and rewrites the QR / join link / host link to use it. Ctrl+C stops the
-tunnel too. Needs `cloudflared` on PATH (`brew install cloudflared`); if it's
-missing or the tunnel fails, it falls back to local.
-
-Skip the prompt with `MODE=local` or `MODE=public`. Or point at a tunnel you
+Skip the choice with `MODE=local` or `MODE=public`. Or point at a tunnel you
 started yourself with `PUBLIC_URL=https://… python3 server.py`.
 
 Anyone joining needs **both** the link **and** the room code; the laptop screens
 still require the host cookie. Read the security notes below before doing this.
 
-Env knobs: `MODE` (local|public), `PUBLIC_URL`, `ROOM_CODE` (default random),
-`HOST_TOKEN` (default random — set it for a stable host bookmark),
-`MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / IP / minute).
+Env knobs: `MODE` (local|public), `GUI` (0 to disable the window), `PUBLIC_URL`,
+`ROOM_CODE` (default random), `HOST_TOKEN` (default random — set it for a stable
+host bookmark), `MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / IP / minute).
 
 ## How it works
 
 | Piece | Role |
 |-------|------|
 | `server.py` | stdlib HTTP server. Holds all game state in memory. |
+| `gui.py` | The Tkinter control window (`server.py` calls `gui.run(ctx)` on the main thread; no import back into `server`). Skipped with `--no-gui` / `GUI=0`. |
 | `qr.py` | Dependency-free QR-code generator (verified against the `qrcode` package + decoded back with OpenCV). |
 | `scattergories.py` | Category pool, letter set, and the pure scoring / alliteration helpers. |
 | `taboo.py` | The ~145-card Taboo deck + a shuffle helper. |

@@ -4,21 +4,53 @@ A small Tkinter control window for the party-game server.
 `server.py` calls `gui.run(ctx)` on the main thread. Everything the window
 needs is passed in through `ctx` so this file never imports `server` (no
 circular import). Set GUI=0 (or run with --no-gui) to skip it.
+
+The window is a frameless, rounded "bubble" drawn on a Canvas — Tk has no
+native rounded widgets, so buttons, chips and the panel itself are all
+painted with smooth polygons. Drag it by the title bar; the ✕ closes it.
 """
 
 import base64
+import math
 import signal
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import font as tkfont
 import webbrowser
 
-BG = "#0b1120"
-CARD = "#0f172a"
-FG = "#e8edf6"
-MUTED = "#94a3b8"
-ACCENT = "#38bdf8"
+BG = "#0b1120"        # backdrop (mostly transparent when the platform allows)
+CARD = "#151f37"      # the bubble
+CARD_EDGE = "#2b3a5c" # hairline around the bubble
+FG = "#eef2fb"
+MUTED = "#93a1ba"
+ACCENT = "#5cc8ff"
+ACCENT_DK = "#38a9e6"
+ACCENT_INK = "#05263b"
+CHIP_PUBLIC = "#123048"
+DANGER = "#ff8f8f"
+GOOD = "#7fe0b6"
+BTN = "#243352"
+BTN_HOVER = "#30436a"
+
+WIN_W = 360          # inner content width
+GAP = 16            # transparent margin so the bubble looks like it floats
+PAD = 26            # padding between the bubble edge and the content
+MARGIN = GAP + PAD
+RADIUS = 30
+
+FAM = "Helvetica"   # replaced with a rounded family in _App.__init__ if present
+
+
+def _round_rect(cv, x1, y1, x2, y2, r, **kw):
+    """A rounded rectangle on canvas `cv`, via a smoothed polygon."""
+    r = max(0, min(r, (x2 - x1) / 2, (y2 - y1) / 2))
+    pts = [
+        x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
+        x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
+        x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
+    ]
+    return cv.create_polygon(pts, smooth=True, **kw)
 
 
 def run(ctx):
@@ -45,6 +77,85 @@ def run(ctx):
             pass
 
 
+class RoundBtn(tk.Canvas):
+    """A pill-shaped button painted on a canvas. `kind` picks the palette."""
+
+    PALETTE = {
+        "normal": (BTN, BTN_HOVER, FG),
+        "accent": (ACCENT, ACCENT_DK, ACCENT_INK),
+        "ghost": (CARD, BTN, MUTED),
+    }
+
+    def __init__(self, parent, text, command, *, kind="normal",
+                 width=WIN_W, height=46, subtitle=None, size=13, mono=False):
+        super().__init__(parent, width=width, height=height, bg=CARD,
+                         highlightthickness=0, bd=0, cursor="hand2")
+        self.command = command
+        self._bw, self._bh = width, height
+        self._kind = kind
+        self._base, self._hover, self._fg = self.PALETTE[kind]
+        self._cur = self._base
+        self._text, self._subtitle = text, subtitle
+        self._size, self._mono = size, mono
+        self._flash = None
+        self._pressed = False
+        self._render()
+        self.bind("<Enter>", lambda e: self._set(self._hover))
+        self.bind("<Leave>", lambda e: (self._set(self._base),
+                                        setattr(self, "_pressed", False)))
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def _fnt(self, bold=True):
+        fam = "Menlo" if self._mono else FAM
+        return (fam, self._size, "bold" if bold else "normal")
+
+    def _render(self):
+        self.delete("all")
+        w, h = self._bw, self._bh
+        r = 22 if self._subtitle else h / 2
+        outline = CARD_EDGE if self._kind == "ghost" else ""
+        _round_rect(self, 2, 2, w - 2, h - 2, r, fill=self._cur,
+                    outline=outline, width=1)
+        if self._flash:
+            msg, col = self._flash
+            self.create_text(w / 2, h / 2, text=msg, fill=col, font=self._fnt())
+        elif self._subtitle:
+            self.create_text(w / 2, h / 2 - 9, text=self._text, fill=self._fg,
+                             font=(FAM, 13, "bold"))
+            sub = ACCENT_INK if self._kind == "accent" else MUTED
+            self.create_text(w / 2, h / 2 + 11, text=self._subtitle, fill=sub,
+                             font=(FAM, 10))
+        else:
+            self.create_text(w / 2, h / 2, text=self._text, fill=self._fg,
+                             font=self._fnt())
+
+    def _set(self, colour):
+        self._cur = colour
+        self._render()
+
+    def _on_press(self, _e):
+        self._pressed = True
+        self._set(self._hover)
+
+    def _on_release(self, _e):
+        if self._pressed and self.command:
+            self.command()
+        self._pressed = False
+
+    def flash(self, msg, colour=GOOD):
+        self._flash = (msg, colour)
+        self._render()
+        self.after(1200, self._unflash)
+
+    def _unflash(self):
+        self._flash = None
+        try:
+            self._render()
+        except tk.TclError:
+            pass
+
+
 class _App(tk.Tk):
     def __init__(self, ctx):
         super().__init__()
@@ -54,21 +165,47 @@ class _App(tk.Tk):
         self._running = True
         self._tunnel_result = None   # set by the worker thread, read by _pump()
         self._frames = 0
+        self._placed = False
+        self._spin_after = None
+
+        global FAM
+        for cand in ("SF Pro Rounded", "SF Compact Rounded", "Helvetica Neue"):
+            if cand in tkfont.families(self):
+                FAM = cand
+                break
 
         self.title("Party Games")
-        self.configure(bg=BG)
-        self.resizable(False, False)
-        self.protocol("WM_DELETE_WINDOW", self.quit_now)
+        self.overrideredirect(True)
+        self._transparent = False
+        try:
+            self.wm_attributes("-transparent", True)
+            self.configure(bg="systemTransparent")
+            self._transparent = True
+        except tk.TclError:
+            self.configure(bg=BG)
 
-        wrap = tk.Frame(self, bg=BG, padx=24, pady=20)
-        wrap.pack()
-        tk.Label(wrap, text="Party Games", bg=BG, fg=FG,
-                 font=("Helvetica", 20, "bold")).pack(anchor="w")
-        self.status = tk.Label(wrap, text="", bg=BG, fg=MUTED,
-                               font=("Helvetica", 12))
-        self.status.pack(anchor="w", pady=(2, 14))
-        self.content = tk.Frame(wrap, bg=BG)
-        self.content.pack(fill="x")
+        self.canvas = tk.Canvas(
+            self, highlightthickness=0, bd=0,
+            bg="systemTransparent" if self._transparent else BG)
+        self.canvas.pack(fill="both", expand=True)
+
+        self.inner = tk.Frame(self.canvas, bg=CARD)
+        self.canvas.create_window(MARGIN, MARGIN, anchor="nw", window=self.inner)
+        tk.Frame(self.inner, bg=CARD, width=WIN_W, height=1).pack()
+
+        header = tk.Frame(self.inner, bg=CARD)
+        header.pack(fill="x")
+        title = tk.Label(header, text="Party Games", bg=CARD, fg=FG,
+                         font=(FAM, 20, "bold"))
+        title.pack(side="left")
+        RoundBtn(header, "✕", self.quit_now, kind="ghost",
+                 width=30, height=30, size=12).pack(side="right")
+
+        self.status_holder = tk.Frame(self.inner, bg=CARD)
+        self.status_holder.pack(fill="x", pady=(8, 14))
+
+        self.content = tk.Frame(self.inner, bg=CARD)
+        self.content.pack(fill="both", expand=True)
 
         if self.already_public:
             self._show_running(public=True)
@@ -78,6 +215,48 @@ class _App(tk.Tk):
         self._pop_to_front()
 
     # ---------------------------------------------------------------- helpers --
+    def _drag_start(self, e):
+        self._drag_off = (e.x_root - self.winfo_x(), e.y_root - self.winfo_y())
+
+    def _drag_move(self, e):
+        self.geometry(f"+{e.x_root - self._drag_off[0]}"
+                      f"+{e.y_root - self._drag_off[1]}")
+
+    def _make_draggable(self, w):
+        """Frameless window — so any non-button surface acts as the title bar."""
+        if getattr(w, "_drag_bound", False):
+            return
+        w._drag_bound = True
+        w.bind("<ButtonPress-1>", self._drag_start, add="+")
+        w.bind("<B1-Motion>", self._drag_move, add="+")
+
+    def _drag_sweep(self):
+        stack = [self.canvas]
+        while stack:
+            w = stack.pop()
+            if isinstance(w, RoundBtn):
+                continue
+            if isinstance(w, (tk.Frame, tk.Label, tk.Canvas)):
+                self._make_draggable(w)
+            stack.extend(w.winfo_children())
+
+    def _relayout(self):
+        self.update_idletasks()
+        h = self.inner.winfo_reqheight() + 2 * MARGIN
+        w = WIN_W + 2 * MARGIN
+        if not self._placed:
+            x = (self.winfo_screenwidth() - w) // 2
+            y = (self.winfo_screenheight() - h) // 3
+            self.geometry(f"{w}x{h}+{x}+{y}")
+            self._placed = True
+        else:
+            self.geometry(f"{w}x{h}+{self.winfo_x()}+{self.winfo_y()}")
+        self.canvas.delete("bubble")
+        _round_rect(self.canvas, GAP, GAP, w - GAP, h - GAP, RADIUS,
+                    fill=CARD, outline=CARD_EDGE, width=1, tags="bubble")
+        self.canvas.tag_lower("bubble")
+        self._drag_sweep()
+
     def _pop_to_front(self):
         self.update_idletasks()
         self.lift()
@@ -88,6 +267,12 @@ class _App(tk.Tk):
             pass
 
     def _clear(self):
+        if self._spin_after:
+            try:
+                self.after_cancel(self._spin_after)
+            except tk.TclError:
+                pass
+            self._spin_after = None
         for w in self.content.winfo_children():
             w.destroy()
 
@@ -96,26 +281,72 @@ class _App(tk.Tk):
         self.clipboard_append(text)
         self.update()
 
+    def _set_status(self, text, fg, *, chip=False, chip_bg=BTN):
+        for w in self.status_holder.winfo_children():
+            w.destroy()
+        if not chip:
+            tk.Label(self.status_holder, text=text, bg=CARD, fg=fg, justify="left",
+                     wraplength=WIN_W, font=(FAM, 12)).pack(anchor="w")
+            return
+        fnt = tkfont.Font(family=FAM, size=11, weight="bold")
+        tw = fnt.measure(text) + 32
+        cv = tk.Canvas(self.status_holder, width=tw, height=28, bg=CARD,
+                       highlightthickness=0)
+        cv.pack(anchor="w")
+        _round_rect(cv, 1, 1, tw - 1, 27, 13, fill=chip_bg, outline="")
+        cv.create_text(16, 15, text=text, fill=fg, font=fnt, anchor="w")
+
+    def _label(self, text):
+        tk.Label(self.content, text=text, bg=CARD, fg=MUTED,
+                 font=(FAM, 10, "bold")).pack(anchor="w", pady=(12, 4))
+
     # ------------------------------------------------------------ mode picker --
     def _show_mode_picker(self):
         self._clear()
-        self.status.config(text="How should phones connect?", fg=MUTED)
-        ttk.Button(self.content, text="Local   —   same WiFi only",
-                   command=lambda: self._show_running(public=False)
-                   ).pack(fill="x", pady=4, ipady=8)
-        ttk.Button(self.content, text="Public   —   anyone with the link + code",
-                   command=self._go_public).pack(fill="x", pady=4, ipady=8)
+        self._set_status("How should phones connect?", MUTED)
+
+        RoundBtn(self.content, "Local", lambda: self._show_running(public=False),
+                 kind="normal", height=58, subtitle="Same Wi-Fi only"
+                 ).pack(fill="x", pady=5)
+        RoundBtn(self.content, "Public", self._go_public, kind="accent",
+                 height=58, subtitle="Anyone with the link + code"
+                 ).pack(fill="x", pady=5)
         tk.Label(self.content,
                  text="Public opens a Cloudflare tunnel (needs cloudflared).",
-                 bg=BG, fg=MUTED, font=("Helvetica", 10)).pack(anchor="w", pady=(8, 0))
+                 bg=CARD, fg=MUTED, wraplength=WIN_W, justify="left",
+                 font=(FAM, 10)).pack(anchor="w", pady=(12, 0))
+        self._relayout()
 
     def _go_public(self):
         self._clear()
-        self.status.config(text="Starting a Cloudflare tunnel…", fg=ACCENT)
-        tk.Label(self.content, text="This takes a few seconds.",
-                 bg=BG, fg=MUTED).pack(anchor="w")
+        self._set_status("Opening a secure tunnel…", ACCENT, chip=True,
+                         chip_bg=CHIP_PUBLIC)
+        tk.Label(self.content, text="Setting up and waiting for it to come "
+                 "online — up to a minute.", bg=CARD, wraplength=WIN_W, justify="left",
+                 fg=MUTED, font=(FAM, 11)).pack(anchor="w")
+        self._spin()
         self._tunnel_result = None
         threading.Thread(target=self._run_tunnel, daemon=True).start()
+        self._relayout()
+
+    def _spin(self):
+        self._dots = tk.Canvas(self.content, width=WIN_W, height=34, bg=CARD,
+                               highlightthickness=0)
+        self._dots.pack(pady=(14, 4))
+        self._spin_phase = 0.0
+        self._animate_dots()
+
+    def _animate_dots(self):
+        if not self._dots.winfo_exists():
+            return
+        self._dots.delete("all")
+        for i in range(3):
+            rad = 4 + 3 * (1 + math.sin(self._spin_phase + i * 0.9)) / 2
+            x = WIN_W / 2 + (i - 1) * 24
+            self._dots.create_oval(x - rad, 17 - rad, x + rad, 17 + rad,
+                                   fill=ACCENT, outline="")
+        self._spin_phase += 0.35
+        self._spin_after = self.after(55, self._animate_dots)
 
     def _run_tunnel(self):
         # off the main thread — MUST NOT touch tkinter. _pump() picks this up.
@@ -145,64 +376,65 @@ class _App(tk.Tk):
 
     def _tunnel_failed(self):
         self._clear()
-        self.status.config(text="The tunnel didn't start.", fg="#f87171")
-        tk.Label(self.content, justify="left", bg=BG, fg=MUTED,
+        self._set_status("The tunnel didn't start.", DANGER, chip=True,
+                         chip_bg="#3a1420")
+        tk.Label(self.content, justify="left", bg=CARD, fg=MUTED,
+                 wraplength=WIN_W, font=(FAM, 11),
                  text="See the terminal for cloudflared's output.\n"
                       "Install it with:   brew install cloudflared"
                  ).pack(anchor="w")
-        ttk.Button(self.content, text="Run Local instead",
-                   command=lambda: self._show_running(public=False)
-                   ).pack(fill="x", pady=(12, 0), ipady=4)
-        ttk.Button(self.content, text="Try the tunnel again",
-                   command=self._go_public).pack(fill="x", pady=(6, 0), ipady=4)
+        RoundBtn(self.content, "Run Local instead",
+                 lambda: self._show_running(public=False), kind="normal",
+                 size=12).pack(fill="x", pady=(14, 0))
+        RoundBtn(self.content, "Try the tunnel again", self._go_public,
+                 kind="ghost", size=12).pack(fill="x", pady=(8, 0))
+        self._relayout()
 
     # --------------------------------------------------------------- running ---
     def _show_running(self, public):
         self._clear()
-        self.status.config(
-            text=("●  Public — via Cloudflare tunnel" if public
-                  else "●  Local — same WiFi only"),
-            fg=(ACCENT if public else MUTED))
+        if public:
+            self._set_status("●  Public — via Cloudflare tunnel", ACCENT,
+                             chip=True, chip_bg=CHIP_PUBLIC)
+        else:
+            self._set_status("●  Local — same Wi-Fi only", MUTED, chip=True)
         self.ctx["banner"](public and not self.already_public)   # mirror to terminal
 
         host = self.ctx["host_url"]()
         play = self.ctx["play_url"]()
 
-        self._link_row("HOST SCREEN — open this on the laptop",
-                       host, host, open_btn=True)
-        self._link_row("PLAYERS JOIN AT",
-                       play.split("?")[0], play, open_btn=False)
+        self._label("HOST SCREEN — open this on the laptop")
+        self._copy_pill(host, host)
+        RoundBtn(self.content, "Open in browser",
+                 lambda: webbrowser.open(host), kind="ghost", height=38,
+                 size=11).pack(fill="x", pady=(6, 0))
 
-        row = tk.Frame(self.content, bg=BG)
-        row.pack(anchor="w", pady=(6, 2))
-        tk.Label(row, text="ROOM CODE", bg=BG, fg=MUTED,
-                 font=("Helvetica", 10)).pack(side="left")
-        tk.Label(row, text=self.ctx["room_code"], bg=BG, fg=FG,
+        self._label("PLAYERS JOIN AT")
+        self._copy_pill(play.split("?")[0], play)
+
+        row = tk.Frame(self.content, bg=CARD)
+        row.pack(anchor="w", pady=(14, 2))
+        tk.Label(row, text="ROOM CODE", bg=CARD, fg=MUTED,
+                 font=(FAM, 10, "bold")).pack(side="left")
+        tk.Label(row, text=self.ctx["room_code"], bg=CARD, fg=ACCENT,
                  font=("Menlo", 22, "bold")).pack(side="left", padx=10)
 
         self._show_qr()
 
-        ttk.Button(self.content, text="Quit", command=self.quit_now
-                   ).pack(fill="x", pady=(14, 0), ipady=4)
+        RoundBtn(self.content, "Quit", self.quit_now, kind="ghost",
+                 size=12).pack(fill="x", pady=(16, 0))
+        self._relayout()
 
-    def _link_row(self, label, shown, payload, open_btn):
-        f = tk.Frame(self.content, bg=BG)
-        f.pack(fill="x", pady=(10, 0))
-        tk.Label(f, text=label, bg=BG, fg=MUTED,
-                 font=("Helvetica", 10)).pack(anchor="w")
-        e = tk.Entry(f, font=("Menlo", 11), relief="flat", bd=6,
-                     readonlybackground=CARD, fg=FG)
-        e.insert(0, shown)
-        e.config(state="readonly")
-        e.pack(fill="x", pady=(3, 5))
-        btns = tk.Frame(f, bg=BG)
-        btns.pack(anchor="w")
-        ttk.Button(btns, text="Copy link",
-                   command=lambda: self._copy(payload)).pack(side="left")
-        if open_btn:
-            ttk.Button(btns, text="Open in browser",
-                       command=lambda: webbrowser.open(payload)
-                       ).pack(side="left", padx=(6, 0))
+    def _copy_pill(self, shown, payload):
+        btn = RoundBtn(self.content, shown, None, kind="ghost", height=40,
+                       size=11, mono=True)
+
+        def do():
+            self._copy(payload)
+            btn.flash("copied  ✓")
+
+        btn.command = do
+        btn.pack(fill="x")
 
     def _show_qr(self):
         try:
@@ -211,9 +443,15 @@ class _App(tk.Tk):
             if f > 1:
                 img = img.subsample(f, f)
             self._qr_img = img
-            tk.Label(self.content, image=img, bg=BG, bd=0).pack(pady=(12, 0))
-            tk.Label(self.content, text="scan to join", bg=BG, fg=MUTED,
-                     font=("Helvetica", 9)).pack()
+            s = img.width()
+            plate = tk.Canvas(self.content, width=s + 22, height=s + 22, bg=CARD,
+                              highlightthickness=0)
+            plate.pack(pady=(16, 2))
+            _round_rect(plate, 0, 0, s + 22, s + 22, 18, fill="#ffffff",
+                        outline="")
+            plate.create_image((s + 22) / 2, (s + 22) / 2, image=img)
+            tk.Label(self.content, text="scan to join", bg=CARD, fg=MUTED,
+                     font=(FAM, 9)).pack(pady=(4, 0))
         except Exception:
             pass
 
