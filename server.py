@@ -35,10 +35,14 @@ PORT = 8000
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 GOAL = 40                     # taps needed to win
-# Controllers touch the server ~2x/second via /state polling, so a player that
-# goes quiet for this long has really gone. Kept a little above the slowest
-# poll interval (~0.7s) times a handful of missed polls, to ride out WiFi blips.
-PLAYER_TIMEOUT = 6            # seconds without a heartbeat -> drop player
+# Controllers touch the server ~2x/second via /state polling. Two stages, so a
+# WiFi blip or a phone locking doesn't cost you your spot:
+#   no heartbeat for PLAYER_TIMEOUT  -> marked "reconnecting" (kept in the game)
+#   ...still gone after PLAYER_GRACE  -> record removed for good
+# A returning phone re-attaches with its saved id+token (see do_resume) and
+# picks up its old name, colour, score and team.
+PLAYER_TIMEOUT = 6            # seconds without a heartbeat -> show as reconnecting
+PLAYER_GRACE = 90            # ...and this long -> really drop them
 COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#eab308",
           "#a855f7", "#ec4899", "#14b8a6", "#f97316"]
 
@@ -269,10 +273,13 @@ def _scat_public():
         idx = scat["reviewIndex"]
         out["category"] = scat["categories"][idx] if idx < len(scat["categories"]) else None
         out["answers"] = _scat_category_answers(idx)
-        # a voter is "done" once they've voted on every answer they may vote on
+        # a voter is "done" once they've voted on every answer they may vote on.
+        # a phone that's mid-reconnect doesn't hold up the round.
         votable = [a for a in out["answers"] if not a["eliminated"]]
         needed, done = 0, 0
-        for pid in present:
+        for pid, p in present.items():
+            if not p.get("connected", True):
+                continue
             targets = [a for a in votable if a["pid"] != pid]
             if not targets:
                 continue
@@ -369,7 +376,8 @@ def public_state():
     """State shaped for the clients (players as a sorted list, no timestamps)."""
     players = [
         {"pid": pid, "name": p["name"], "color": p["color"],
-         "taps": p["taps"], "score": p["score"], "team": p.get("team")}
+         "taps": p["taps"], "score": p["score"], "team": p.get("team"),
+         "connected": p.get("connected", True)}
         for pid, p in state["players"].items()
     ]
     players.sort(key=lambda p: p["pid"])
@@ -399,23 +407,37 @@ def broadcast():
 
 
 def reap_players():
-    """Drop players whose controller has gone silent. Caller holds _lock."""
+    """Two-stage cleanup for silent controllers. Caller holds _lock.
+    Silent past PLAYER_TIMEOUT -> flagged disconnected but kept (so they can
+    reconnect); silent past PLAYER_GRACE -> removed. Returns True if anything
+    changed so the caller re-broadcasts."""
     now = time.time()
-    stale = [pid for pid, p in state["players"].items()
-             if now - p["last_seen"] > PLAYER_TIMEOUT]
-    for pid in stale:
-        del state["players"][pid]
-    return bool(stale)
+    changed = False
+    for pid, p in list(state["players"].items()):
+        gone = now - p["last_seen"]
+        if gone > PLAYER_GRACE:
+            del state["players"][pid]
+            changed = True
+        elif gone > PLAYER_TIMEOUT and p.get("connected", True):
+            p["connected"] = False
+            changed = True
+    return changed
 
 
 def touch_player(pid):
-    """Mark a player alive from any request that carries their id."""
+    """Mark a player alive from any request that carries their id. Returns True
+    when this flips them from disconnected back to connected (caller broadcasts)."""
     try:
         p = state["players"].get(int(pid))
     except (TypeError, ValueError):
-        return
-    if p:
-        p["last_seen"] = time.time()
+        return False
+    if not p:
+        return False
+    p["last_seen"] = time.time()
+    if not p.get("connected", True):
+        p["connected"] = True
+        return True
+    return False
 
 
 def _valid_pid(pid):
@@ -474,12 +496,32 @@ def do_join(name, code, ip):
             c1 = sum(1 for p in state["players"].values() if p.get("team") == 1)
             c2 = sum(1 for p in state["players"].values() if p.get("team") == 2)
             team = 1 if c1 <= c2 else 2
+        token = secrets.token_urlsafe(9)   # phone keeps this to reconnect as itself
         state["players"][pid] = {
             "name": name, "color": color, "taps": 0, "score": 0, "team": team,
-            "last_seen": time.time(),
+            "last_seen": time.time(), "token": token, "connected": True,
         }
         broadcast()
-        return {"pid": pid, "color": color, "goal": state["goal"]}
+        return {"pid": pid, "token": token, "color": color, "goal": state["goal"]}
+
+
+def do_resume(pid, token):
+    """A phone that dropped comes back with its saved id + token. Caller-free
+    (takes the lock itself)."""
+    with _lock:
+        try:
+            pid = int(pid)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "unknown"}
+        p = state["players"].get(pid)
+        if not p or not token or not p.get("token") \
+                or not secrets.compare_digest(str(token), p["token"]):
+            return {"ok": False, "error": "unknown"}
+        p["last_seen"] = time.time()
+        p["connected"] = True
+        broadcast()
+        return {"ok": True, "pid": pid, "name": p["name"], "color": p["color"],
+                "team": p.get("team"), "goal": state["goal"]}
 
 
 def do_select(game):
@@ -816,9 +858,14 @@ def do_input(data, is_host=False):
             return {"ok": True}
 
         if action == "leave":
-            # sent as a beacon when a controller page is closed / navigated away
-            if pid in state["players"]:
-                del state["players"][pid]
+            # beacon when a controller page closes / navigates away. Don't delete
+            # — the page might just be reloading, or the phone crashed and is
+            # coming back. Flag them disconnected; reap_players() clears them
+            # after PLAYER_GRACE if they never return.
+            p = state["players"].get(pid)
+            if p and p.get("connected", True):
+                p["connected"] = False
+                p["last_seen"] = time.time() - PLAYER_TIMEOUT
                 broadcast()
             return {"ok": True}
 
@@ -984,8 +1031,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"locked": True, "game": state["game"],
                                      "players": []})
                     return
-                if pid is not None:
-                    touch_player(pid)   # the poll doubles as the heartbeat
+                if pid is not None and touch_player(pid):
+                    broadcast()         # this phone just came back from "reconnecting"
                 self._send_json(public_state())
         elif path == "/events":
             if not host:
@@ -1000,6 +1047,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/join":
             self._send_json(do_join(data.get("name"), data.get("code"),
                                     self._client_ip()))
+        elif path == "/resume":
+            self._send_json(do_resume(data.get("pid"), data.get("token")))
         elif path == "/input":
             self._send_json(do_input(data, self._is_host()))
         elif path == "/select":

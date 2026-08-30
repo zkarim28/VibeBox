@@ -161,9 +161,15 @@
     font-size: 5.5rem; font-weight: 900; line-height: 1; color: #38bdf8;
     font-variant-numeric: tabular-nums; margin: 0.75rem 0;
   }
+  #conn {
+    position: fixed; left: 0; right: 0; top: 0; z-index: 100;
+    background: #b45309; color: #fff; text-align: center;
+    font-size: 0.85rem; font-weight: 600; padding: 0.4rem 0.75rem;
+  }
 </style>
 </head>
 <body>
+  <div id="conn" hidden>Connection lost — reconnecting…</div>
   <h1>Party<span>Games</span></h1>
 
   <div class="join" id="join">
@@ -275,8 +281,57 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
-let pid = null, color = "#38bdf8", goal = 40, phase = "lobby", myTaps = 0;
+let pid = null, token = null, color = "#38bdf8", goal = 40, phase = "lobby", myTaps = 0;
 let myName = "", currentGame = undefined;
+
+// ---- staying the same player across a disconnect ----
+// The server hands us {pid, token} on join; we stash it (per room code) so a
+// reload / crash / WiFi drop / phone-lock can re-attach as the same player,
+// keeping our name, colour, score and team.
+const _qs0 = new URLSearchParams(location.search);
+const ROOM = (_qs0.get("code") || "").slice(0, 6).toUpperCase();
+const IDKEY = ROOM ? "pg:" + ROOM : "pg:_";
+function saveId()  {
+  try {
+    // one room at a time — drop any id saved for a previous room code
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("pg:") && k !== IDKEY) localStorage.removeItem(k);
+    }
+    localStorage.setItem(IDKEY, JSON.stringify({ pid, token }));
+  } catch (e) {}
+}
+function clearId() { try { localStorage.removeItem(IDKEY); } catch (e) {} }
+function loadId()  { try { return JSON.parse(localStorage.getItem(IDKEY) || "null"); } catch (e) { return null; } }
+
+let resuming = null;   // in-flight resume promise, so we only try one at a time
+function tryResume() {
+  if (resuming) return resuming;
+  const saved = loadId();
+  if (!saved || !saved.pid || !saved.token) return Promise.resolve(false);
+  resuming = (async () => {
+    try {
+      const d = await (await fetch("/resume", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pid: saved.pid, token: saved.token })
+      })).json();
+      if (!d || !d.ok) return false;
+      pid = d.pid; token = saved.token; color = d.color; goal = d.goal;
+      myName = d.name || myName || ("Player " + pid);
+      saveId();
+      $("join").style.display = "none";
+      $("who").textContent = myName; $("who").style.color = color;
+      $("wait-who").textContent = myName + " — you're back in!";
+      $("tap").style.background = color;
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      resuming = null;
+    }
+  })();
+  return resuming;
+}
 
 // ---- joining ----
 const JOIN_ERRORS = {
@@ -299,8 +354,9 @@ async function join() {
       $("err").textContent = JOIN_ERRORS[d && d.error] || "Could not join. Try again.";
       return;
     }
-    pid = d.pid; color = d.color; goal = d.goal;
+    pid = d.pid; token = d.token; color = d.color; goal = d.goal;
     myName = name || ("Player " + pid);
+    saveId();
     $("join").style.display = "none";
     $("who").textContent = myName;
     $("who").style.color = color;
@@ -320,7 +376,13 @@ $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); })
 // ?name=Foo also prefills the name and auto-joins (quick-rejoin bookmark).
 const _qs = new URLSearchParams(location.search);
 if (_qs.get("code")) $("code").value = _qs.get("code").slice(0, 6).toUpperCase();
-if (_qs.get("name")) { $("name").value = _qs.get("name").slice(0, 14); join(); }
+
+(async () => {
+  // already played on this phone? slip straight back into our old seat.
+  if (await tryResume()) { $("waiting").hidden = false; startLoops(); return; }
+  clearId();
+  if (_qs.get("name")) { $("name").value = _qs.get("name").slice(0, 14); join(); }
+})();
 
 function setView(game) {
   if (game === currentGame) return;
@@ -623,7 +685,10 @@ function renderTaboo(s) {
 }
 
 // ---- keep-alive + polling ----
+let loopsOn = false;
 function startLoops() {
+  if (loopsOn) return;
+  loopsOn = true;
   requestAnimationFrame(flushTaps);
   pollState();   // the state poll itself is the heartbeat (see /state?pid=)
 }
@@ -640,11 +705,17 @@ async function pollState() {
   try {
     const url = "/state" + (pid ? "?pid=" + pid : "");
     const s = await (await fetch(url, { cache: "no-store" })).json();
-    if (s.locked) { location.reload(); return; }   // dropped — back to join
+    $("conn").hidden = true;   // a reply got through — we're online
+    const me = s.players.find(p => p.pid === pid);
+    if (s.locked || (!me && pid)) {
+      // the server no longer knows us (dropped past the grace window, or a
+      // fresh game). Try to re-attach; only fall back to the join screen if
+      // that fails.
+      if (await tryResume()) { setTimeout(pollState, 400); return; }
+      clearId(); location.reload(); return;
+    }
     const wasPlaying = phase === "playing";
     phase = s.phase; goal = s.goal;
-    const me = s.players.find(p => p.pid === pid);
-    if (!me && pid) { location.reload(); return; }
     setView(s.game);
 
     if (s.game === "tap-race") {
@@ -658,7 +729,9 @@ async function pollState() {
     } else if (s.game === "taboo") {
       renderTaboo(s);
     }
-  } catch (e) {}
+  } catch (e) {
+    if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
+  }
   setTimeout(pollState, s_poll_delay());
 }
 function s_poll_delay() {

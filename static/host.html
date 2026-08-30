@@ -50,6 +50,9 @@
     border-radius: 0.9rem; padding: 0.9rem 1.1rem;
   }
   .name { font-size: clamp(1rem, 2.5vw, 1.6rem); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.dropped { opacity: 0.45; }
+  .tag-recon { font-size: 0.7em; font-weight: 600; color: #fbbf24; letter-spacing: 0.04em; margin-left: 0.5rem; white-space: nowrap; }
+  .tb-roster span.dropped, .scd.dropped { opacity: 0.45; }
   .bar { height: 1.5rem; background: #1e293b; border-radius: 999px; overflow: hidden; }
   .fill { height: 100%; width: 0; border-radius: 999px; transition: width 0.12s linear; }
   .count { font-variant-numeric: tabular-nums; color: #94a3b8; min-width: 4rem; text-align: right; }
@@ -487,8 +490,9 @@ function renderTap(s) {
   } else {
     wrap.innerHTML = s.players.map(p => {
       const pct = Math.min(100, (p.taps / s.goal) * 100);
-      return `<div class="row">
-        <div class="name" style="color:${p.color}">${esc(p.name)}</div>
+      const off = p.connected === false;
+      return `<div class="row${off ? " dropped" : ""}">
+        <div class="name" style="color:${p.color}">${esc(p.name)}${off ? '<span class="tag-recon">RECONNECTING…</span>' : ""}</div>
         <div class="bar"><div class="fill" style="width:${pct}%;background:${p.color}"></div></div>
         <div class="count">${p.taps} / ${s.goal}</div>
       </div>`;
@@ -527,7 +531,7 @@ function renderScat(s) {
   // scoreboard
   const rows = [...s.players].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   $("sc-scores").innerHTML = rows.length
-    ? rows.map(p => `<div class="score-row"><span style="color:${p.color};font-weight:700">${esc(p.name)}</span><span class="pts">${p.score}</span></div>`).join("")
+    ? rows.map(p => `<div class="score-row${p.connected === false ? " scd dropped" : ""}"><span style="color:${p.color};font-weight:700">${esc(p.name)}${p.connected === false ? '<span class="tag-recon">RECONNECTING…</span>' : ""}</span><span class="pts">${p.score}</span></div>`).join("")
     : '<div class="scat-sub">No players yet.</div>';
 
   // settings reflect server
@@ -688,7 +692,7 @@ function renderTaboo(s) {
     $("tb-turn-lbl").textContent = "";
     const t1 = s.players.filter(p => p.team === 1), t2 = s.players.filter(p => p.team === 2);
     const roster = (name, ps) =>
-      `<div class="tb-roster"><b>${esc(name)}</b>${ps.length ? ps.map(p => `<span>${esc(p.name)}</span>`).join("") : '<span class="dim">no phone yet</span>'}</div>`;
+      `<div class="tb-roster"><b>${esc(name)}</b>${ps.length ? ps.map(p => `<span class="${p.connected === false ? "dropped" : ""}">${esc(p.name)}${p.connected === false ? " ⟳" : ""}</span>`).join("") : '<span class="dim">no phone yet</span>'}</div>`;
     $("tb-rosters").innerHTML = roster(nameOf(1), t1) + roster(nameOf(2), t2);
     const ready = t1.length >= 1 && t2.length >= 1;
     $("tb-lobby-msg").textContent = ready
