@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import blackbox       # local, BlackBox (CAH-style) card decks
+import codenames      # local, Codenames word list + board dealer
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
 import taboo          # local, Taboo card deck
@@ -75,6 +76,7 @@ HOST_ONLY = {
     "tabooStart", "tabooSet", "tabooBeginTurn", "tabooEndTurn", "tabooNextTurn",
     "tabooEndGame", "tabooNewGame",
     "blackboxStart", "blackboxSet", "blackboxNewGame", "blackboxEndGame",
+    "cnStart", "cnMode", "cnNewGame", "cnLobby", "cnAutoTeam",
 }
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
@@ -111,6 +113,14 @@ GAMES = [
         "players": "3-8 players",
         "status": "ready",
         "emoji": "\N{BLACK LARGE SQUARE}",
+    },
+    {
+        "id": "codenames",
+        "name": "Codenames",
+        "tagline": "Two spymasters give one-word clues; their teams race to find the right agents — and dodge the assassin.",
+        "players": "4-8 players · 2 teams",
+        "status": "ready",
+        "emoji": "\N{SLEUTH OR SPY}",
     },
     {
         "id": "doodle-dash",
@@ -267,6 +277,26 @@ def fresh_blackbox():
     }
 
 
+def fresh_codenames():
+    """A Codenames sub-state in its lobby form."""
+    return {
+        "phase": "lobby",       # lobby | clue | guess | play (party) | gameover
+        "mode": "online",       # online | party
+        "words": [],            # 25 codename words
+        "key": [],              # 25 of red|blue|innocent|assassin  (secret)
+        "covers": [None] * 25,   # 25 of None|red|blue|innocent|assassin (placed)
+        "turn": "red",          # whose turn it is
+        "starter": "red",       # who went first (has 9 words)
+        "spymasters": {"red": None, "blue": None},   # pid per team
+        "clue": None,           # {"word", "number", "team"}
+        "guessesLeft": 0,
+        "guessedThisTurn": 0,
+        "log": [],              # [{"team", "kind", "text"}]
+        "winner": None,         # "red" | "blue"
+        "winReason": None,      # "words" | "assassin"
+    }
+
+
 state = {
     "game": None,             # None = menu screen, else a GAMES id
     "phase": "lobby",         # tap-race phase: lobby | playing | over
@@ -276,6 +306,7 @@ state = {
     "scat": fresh_scat(),
     "taboo": fresh_taboo(),
     "blackbox": fresh_blackbox(),
+    "codenames": fresh_codenames(),
 }
 _next_pid = [1]
 
@@ -612,6 +643,131 @@ def _blackbox_public(for_pid=None):
     return out
 
 
+# ------------------------------------------------------------------- Codenames --
+def _cn_counts():
+    """Team words still hidden."""
+    cn = state["codenames"]
+    left = {"red": 0, "blue": 0}
+    for i, k in enumerate(cn["key"]):
+        if k in ("red", "blue") and cn["covers"][i] is None:
+            left[k] += 1
+    return left
+
+
+def _cn_target(team):
+    return codenames.STARTER_COUNT if team == state["codenames"]["starter"] \
+        else codenames.SECOND_COUNT
+
+
+def _cn_is_spy(pid):
+    sm = state["codenames"]["spymasters"]
+    return pid is not None and pid in (sm["red"], sm["blue"])
+
+
+def _cn_spy_team(pid):
+    sm = state["codenames"]["spymasters"]
+    return "red" if sm["red"] == pid else ("blue" if sm["blue"] == pid else None)
+
+
+def _cn_end_turn():
+    cn = state["codenames"]
+    cn["turn"] = "blue" if cn["turn"] == "red" else "red"
+    cn["clue"] = None
+    cn["guessesLeft"] = 0
+    cn["guessedThisTurn"] = 0
+    cn["phase"] = "clue"
+
+
+def _cn_check_win():
+    """Word-count win. Returns True if the game just ended."""
+    cn = state["codenames"]
+    left = _cn_counts()
+    for t in ("red", "blue"):
+        if left[t] == 0:
+            cn["winner"] = t
+            cn["winReason"] = "words"
+            cn["phase"] = "gameover"
+            return True
+    return False
+
+
+def _cn_reveal(i, guessing, forced_cover=None):
+    """Uncover card i. `guessing` is the team that touched it. In party mode the
+    spymaster phone passes forced_cover (what was actually guessed at the table);
+    online mode uses the real key colour."""
+    cn = state["codenames"]
+    if not (0 <= i < 25) or cn["covers"][i] is not None:
+        return
+    actual = forced_cover if forced_cover else cn["key"][i]
+    cn["covers"][i] = actual
+    word = cn["words"][i]
+    cn["log"].append({"team": guessing, "kind": actual, "text": word})
+
+    if actual == "assassin":
+        cn["winner"] = "blue" if guessing == "red" else "red"
+        cn["winReason"] = "assassin"
+        cn["phase"] = "gameover"
+        return
+    if _cn_check_win():
+        return
+    if cn["mode"] == "party":
+        return                        # party phone drives turns manually
+    if actual == guessing:
+        cn["guessedThisTurn"] += 1
+        cn["guessesLeft"] -= 1
+        if cn["guessesLeft"] <= 0:
+            _cn_end_turn()
+    else:
+        _cn_end_turn()                # innocent or the other team -> turn over
+
+
+def _codenames_public(for_pid=None):
+    cn = state["codenames"]
+    is_spy = _cn_is_spy(for_pid)
+    show_key = bool(cn["key"]) and (cn["mode"] == "party" or is_spy
+                                    or cn["phase"] == "gameover")
+    teams = {"red": [], "blue": []}
+    for pid, p in state["players"].items():
+        t = p.get("team")
+        if t in ("red", "blue"):
+            teams[t].append({
+                "pid": pid, "name": p["name"],
+                "spymaster": cn["spymasters"][t] == pid,
+                "connected": p.get("connected", True),
+            })
+    left = _cn_counts()
+    out = {
+        "phase": cn["phase"], "mode": cn["mode"],
+        "words": cn["words"], "covers": cn["covers"],
+        "turn": cn["turn"], "starter": cn["starter"],
+        "clue": cn["clue"], "guessesLeft": cn["guessesLeft"],
+        "guessedThisTurn": cn["guessedThisTurn"],
+        "left": left,
+        "target": {"red": _cn_target("red"), "blue": _cn_target("blue")} if cn["key"] else None,
+        "teams": teams,
+        "spymasters": {t: (state["players"].get(cn["spymasters"][t], {}).get("name")
+                           if cn["spymasters"][t] else None) for t in ("red", "blue")},
+        "log": cn["log"][-8:],
+        "winner": cn["winner"], "winReason": cn["winReason"],
+        "playerCount": len(state["players"]),
+    }
+    if show_key:
+        out["key"] = cn["key"]
+    if for_pid is not None:
+        p = state["players"].get(for_pid, {})
+        yt = p.get("team")
+        out["youTeam"] = yt if yt in ("red", "blue") else None
+        spy_team = _cn_spy_team(for_pid)
+        out["youSpymaster"] = spy_team
+        if cn["mode"] == "party":
+            out["canControl"] = True
+        else:
+            out["canClue"] = cn["phase"] == "clue" and spy_team == cn["turn"]
+            out["canGuess"] = (cn["phase"] == "guess" and yt == cn["turn"]
+                               and not is_spy)
+    return out
+
+
 def public_state(for_pid=None):
     """State shaped for the clients (players as a sorted list, no timestamps).
     `for_pid` (set on a /state?pid= poll) adds that player's own private view."""
@@ -633,6 +789,7 @@ def public_state(for_pid=None):
         "scat": _scat_public(for_pid) if state["game"] == "scattergories" else None,
         "taboo": _taboo_public() if state["game"] == "taboo" else None,
         "blackbox": _blackbox_public(for_pid) if state["game"] == "blackbox" else None,
+        "codenames": _codenames_public(for_pid) if state["game"] == "codenames" else None,
     }
 
 
@@ -748,6 +905,10 @@ def do_join(name, code, ip):
             c1 = sum(1 for p in state["players"].values() if p.get("team") == 1)
             c2 = sum(1 for p in state["players"].values() if p.get("team") == 2)
             team = 1 if c1 <= c2 else 2
+        elif state["game"] == "codenames" and state["codenames"]["mode"] == "online":
+            r = sum(1 for p in state["players"].values() if p.get("team") == "red")
+            b = sum(1 for p in state["players"].values() if p.get("team") == "blue")
+            team = "red" if r <= b else "blue"
         token = secrets.token_urlsafe(9)   # phone keeps this to reconnect as itself
         state["players"][pid] = {
             "name": name, "color": color, "taps": 0, "score": 0, "team": team,
@@ -806,8 +967,14 @@ def do_select(game):
         state["blackbox"]["target"] = keepbb["target"]
         state["blackbox"]["selectSeconds"] = keepbb["selectSeconds"]
 
+        keepcn = state["codenames"]
+        state["codenames"] = fresh_codenames()
+        state["codenames"]["mode"] = keepcn["mode"]
+
         if game == "taboo":
             _taboo_autoteam()
+        elif game == "codenames":
+            _cn_autoteam()
         else:
             for pl in state["players"].values():
                 pl["team"] = None
@@ -820,6 +987,13 @@ def _taboo_autoteam():
     pids = sorted(state["players"])
     for i, pid in enumerate(pids):
         state["players"][pid]["team"] = 1 if i % 2 == 0 else 2
+
+
+def _cn_autoteam():
+    """Split players between 'red' and 'blue' for Codenames (online mode)."""
+    pids = sorted(state["players"])
+    for i, pid in enumerate(pids):
+        state["players"][pid]["team"] = "red" if i % 2 == 0 else "blue"
 
 
 # ------------------------------------------------------- scattergories actions ---
@@ -1229,6 +1403,174 @@ def do_blackbox(pid, action, data, is_host=False):
     return {"ok": False, "error": "unknown_action"}
 
 
+_CN_WORD_RE = re.compile(r"^[A-Za-z][A-Za-z'\-]{0,23}$")
+
+
+def do_codenames(pid, action, data, is_host=False):
+    """Handle a cn* action. Caller holds _lock."""
+    cn = state["codenames"]
+
+    if action == "cnMode":
+        if cn["phase"] == "lobby":
+            m = data.get("mode")
+            if m in ("online", "party"):
+                cn["mode"] = m
+                broadcast()
+        return {"ok": True}
+
+    if action == "cnAutoTeam":
+        if cn["phase"] == "lobby":
+            _cn_autoteam()
+            broadcast()
+        return {"ok": True}
+
+    if action == "cnStart":
+        if cn["phase"] not in ("lobby", "gameover"):
+            return {"ok": True}
+        if cn["mode"] == "online":
+            reds = [p for p in state["players"].values() if p.get("team") == "red"]
+            blues = [p for p in state["players"].values() if p.get("team") == "blue"]
+            if len(reds) < 2 or len(blues) < 2:
+                return {"ok": False, "error": "need_teams"}
+            if cn["spymasters"]["red"] not in [pd for pd, p in state["players"].items() if p.get("team") == "red"]:
+                return {"ok": False, "error": "need_spy_red"}
+            if cn["spymasters"]["blue"] not in [pd for pd, p in state["players"].items() if p.get("team") == "blue"]:
+                return {"ok": False, "error": "need_spy_blue"}
+        words, key, starter = codenames.deal_board()
+        cn["words"], cn["key"], cn["starter"], cn["turn"] = words, key, starter, starter
+        cn["covers"] = [None] * 25
+        cn["clue"] = None
+        cn["guessesLeft"] = 0
+        cn["guessedThisTurn"] = 0
+        cn["log"] = []
+        cn["winner"] = None
+        cn["winReason"] = None
+        cn["phase"] = "play" if cn["mode"] == "party" else "clue"
+        broadcast()
+        return {"ok": True}
+
+    if action == "cnNewGame":
+        if cn["phase"] == "gameover":
+            words, key, starter = codenames.deal_board()
+            cn["words"], cn["key"], cn["starter"], cn["turn"] = words, key, starter, starter
+            cn["covers"] = [None] * 25
+            cn["clue"] = None
+            cn["guessesLeft"] = cn["guessedThisTurn"] = 0
+            cn["log"] = []
+            cn["winner"] = cn["winReason"] = None
+            cn["phase"] = "play" if cn["mode"] == "party" else "clue"
+            broadcast()
+        return {"ok": True}
+
+    if action == "cnLobby":
+        st = fresh_codenames()
+        st["mode"] = cn["mode"]
+        state["codenames"] = st
+        broadcast()
+        return {"ok": True}
+
+    # ---- player actions ----
+    p = state["players"].get(pid)
+    if not p:
+        return {"ok": False, "error": "not_joined"}
+    p["last_seen"] = time.time()
+    p["connected"] = True
+
+    if action == "cnTeam":
+        if cn["phase"] in ("lobby", "gameover"):
+            t = data.get("team")
+            if t in ("red", "blue"):
+                if cn["spymasters"].get(p.get("team")) == pid:
+                    cn["spymasters"][p["team"]] = None       # leaving a spy seat
+                p["team"] = t
+                broadcast()
+        return {"ok": True}
+
+    if action == "cnSpymaster":
+        if cn["phase"] in ("lobby", "gameover"):
+            t = p.get("team")
+            if t in ("red", "blue"):
+                cur = cn["spymasters"][t]
+                cn["spymasters"][t] = None if cur == pid else pid
+                broadcast()
+        return {"ok": True}
+
+    if action == "cnClue":
+        if cn["mode"] != "online" or cn["phase"] != "clue":
+            return {"ok": False, "error": "not_now"}
+        if _cn_spy_team(pid) != cn["turn"]:
+            return {"ok": False, "error": "not_your_turn"}
+        word = str(data.get("word", "")).strip()
+        if not _CN_WORD_RE.match(word):
+            return {"ok": False, "error": "bad_word"}
+        try:
+            num = int(data.get("number"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_number"}
+        num = max(0, min(9, num))
+        cn["clue"] = {"word": word.upper(), "number": num, "team": cn["turn"]}
+        cn["guessesLeft"] = 25 if num == 0 else num + 1
+        cn["guessedThisTurn"] = 0
+        cn["phase"] = "guess"
+        cn["log"].append({"team": cn["turn"], "kind": "clue",
+                          "text": f"{word.upper()} {num}"})
+        broadcast()
+        return {"ok": True}
+
+    if action == "cnGuess":
+        try:
+            i = int(data.get("i"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_card"}
+        if cn["phase"] == "gameover":
+            return {"ok": True}
+        if cn["mode"] == "party":
+            cover = data.get("cover")
+            if cover not in ("red", "blue", "innocent", "assassin"):
+                return {"ok": False, "error": "bad_cover"}
+            # whose guess this was: the card's own team, else the active turn
+            guessing = cover if cover in ("red", "blue") else cn["turn"]
+            _cn_reveal(i, guessing, forced_cover=cover)
+            broadcast()
+            return {"ok": True}
+        # online
+        if cn["phase"] != "guess" or p.get("team") != cn["turn"] or _cn_is_spy(pid):
+            return {"ok": False, "error": "cant_guess"}
+        _cn_reveal(i, cn["turn"])
+        broadcast()
+        return {"ok": True}
+
+    if action == "cnUncover":       # party phone fat-finger fix
+        if cn["mode"] == "party":
+            try:
+                i = int(data.get("i"))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "bad_card"}
+            if 0 <= i < 25 and cn["covers"][i] is not None and cn["phase"] != "gameover":
+                cn["covers"][i] = None
+                broadcast()
+        return {"ok": True}
+
+    if action == "cnTurn":          # party phone: hand the turn to a team
+        if cn["mode"] == "party" and cn["phase"] == "play":
+            t = data.get("team")
+            if t in ("red", "blue"):
+                cn["turn"] = t
+                broadcast()
+        return {"ok": True}
+
+    if action == "cnEndTurn":
+        if cn["mode"] == "online" and cn["phase"] == "guess" \
+                and p.get("team") == cn["turn"] and not _cn_is_spy(pid):
+            if cn["guessedThisTurn"] < 1:
+                return {"ok": False, "error": "guess_first"}
+            _cn_end_turn()
+            broadcast()
+        return {"ok": True}
+
+    return {"ok": False, "error": "unknown_action"}
+
+
 def do_input(data, is_host=False):
     pid, action = data.get("pid"), data.get("action")
     if action in HOST_ONLY and not is_host:
@@ -1258,6 +1600,9 @@ def do_input(data, is_host=False):
 
         if isinstance(action, str) and action.startswith("blackbox"):
             return do_blackbox(pid, action, data, is_host)
+
+        if isinstance(action, str) and action.startswith("cn"):
+            return do_codenames(pid, action, data, is_host)
 
         # start / reset are game-wide controls — the laptop screen or any
         # phone can trigger them, so they don't require a valid player id.

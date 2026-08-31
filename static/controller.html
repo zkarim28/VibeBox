@@ -283,6 +283,79 @@
   .bb-chip { background: #1e293b; border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.9rem; font-weight: 700; }
   .bb-chip.recon { opacity: 0.5; }
   #bb-reveal { flex: 1; overflow-y: auto; padding: 0.25rem 0 1rem; }
+
+  /* --- Codenames --- */
+  #codenames { width: 100%; max-width: 560px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; }
+  #codenames .cn-top {
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.7rem 0 0.55rem;
+    position: sticky; top: 0; background: #0b1120; z-index: 3; border-bottom: 1px solid #1e293b;
+  }
+  #codenames .cn-top .sc {
+    flex: 0 0 auto; width: auto; font-weight: 800; font-size: 1.15rem;
+    min-width: 2.1rem !important; text-align: center; padding: 0.12rem 0.55rem; border-radius: 0.45rem;
+  }
+  #codenames .cn-top .msg { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .cn-top .sc.red { background: #7f1d1d; color: #fecaca; } .cn-top .sc.blue { background: #1e3a8a; color: #bfdbfe; }
+  .cn-top .sc.act { outline: 2px solid #fff; }
+  .cn-top .msg { flex: 1; font-size: 0.9rem; color: #cbd5e1; text-align: right; }
+
+  .cn-clueline { text-align: center; padding: 0.55rem 0; font-size: 1rem; color: #cbd5e1; }
+  .cn-clueline b { color: #fff; font-size: 1.15rem; }
+
+  #codenames .cn-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
+    gap: 4px; margin: 0.35rem auto 0; width: 100%; flex: 0 0 auto;
+    /* JS sets an explicit square height so the 1fr rows resolve */
+  }
+  #codenames .cn-c {
+    position: relative; border-radius: 0.4rem; min-width: 0; min-height: 0;
+    align-self: stretch; height: 100%;
+    background: #e7d9b8; color: #1a1206; border: 1px solid #b9a97f;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    font-weight: 800; text-transform: uppercase; font-size: 10px; line-height: 1.03;
+    padding: 1px; overflow: hidden; overflow-wrap: anywhere; touch-action: manipulation;
+  }
+  .cn-c.tap { cursor: pointer; }
+  .cn-c.tap:active { transform: scale(0.95); }
+  .cn-c.key-red    { background: #f0b4b4; box-shadow: inset 0 0 0 2px #dc2626; }
+  .cn-c.key-blue   { background: #aec6f5; box-shadow: inset 0 0 0 2px #2563eb; }
+  .cn-c.key-innocent { background: #e9dcb6; box-shadow: inset 0 0 0 2px #b7a271; }
+  .cn-c.key-assassin { background: #2b2b2b; color: #eee; box-shadow: inset 0 0 0 2px #000; }
+  .cn-c.cov-red    { background: #b32424; color: #fff; box-shadow: none; }
+  .cn-c.cov-blue   { background: #1f5fd0; color: #fff; box-shadow: none; }
+  .cn-c.cov-innocent { background: #cbb987; color: #4a3c1c; box-shadow: none; }
+  .cn-c.cov-assassin { background: #111; color: #eee; box-shadow: none; }
+  .cn-c.covered .w { opacity: 0.55; }
+
+  .cn-clue-form { display: flex; gap: 0.5rem; margin-top: 0.7rem; }
+  .cn-clue-form input[type=text] {
+    flex: 1; font-size: 1.05rem; padding: 0.7rem 0.8rem; border-radius: 0.6rem;
+    border: 1px solid #334155; background: #111827; color: #e2e8f0; text-transform: uppercase;
+  }
+  .cn-clue-form input[type=number] {
+    width: 3.4rem; font-size: 1.05rem; padding: 0.7rem 0.4rem; text-align: center;
+    border-radius: 0.6rem; border: 1px solid #334155; background: #111827; color: #e2e8f0;
+  }
+  .cn-btn {
+    width: 100%; margin-top: 0.6rem; font-size: 1.05rem; font-weight: 800;
+    padding: 0.85rem; border-radius: 0.7rem; border: 0; background: #38bdf8; color: #05070d;
+  }
+  .cn-btn[disabled] { filter: grayscale(0.6) brightness(0.65); }
+  .cn-btn.ghost { background: #1e293b; color: #e2e8f0; font-weight: 700; }
+  .cn-btn.red { background: #ef4444; color: #fff; } .cn-btn.blue { background: #3b82f6; color: #fff; }
+
+  .cn-picker { position: fixed; inset: 0; background: rgba(3,7,13,0.75); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+  .cn-picker .box { background: #0f172a; border: 1px solid #334155; border-radius: 1rem; padding: 1.25rem; width: 100%; max-width: 20rem; text-align: center; }
+  .cn-picker .box h3 { font-size: 1.1rem; margin-bottom: 0.9rem; }
+  .cn-picker .box button { display: block; width: 100%; margin-top: 0.5rem; padding: 0.8rem; border: 0; border-radius: 0.6rem; font-weight: 800; font-size: 1rem; }
+
+  .cn-lobby { text-align: center; padding: 1.5rem 0.5rem; }
+  .cn-lobby .big { font-size: 1.5rem; font-weight: 800; margin: 0.5rem 0; }
+  .cn-teamsel { display: flex; gap: 0.6rem; margin: 1rem 0; }
+  .cn-teamsel button { flex: 1; padding: 1rem; border: 2px solid transparent; border-radius: 0.7rem; font-weight: 800; font-size: 1.05rem; background: #1e293b; color: #e2e8f0; }
+  .cn-teamsel button.red.on { background: #7f1d1d; color: #fff; border-color: #ef4444; }
+  .cn-teamsel button.blue.on { background: #1e3a8a; color: #fff; border-color: #3b82f6; }
+  .cn-roster { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.6rem; color: #94a3b8; font-size: 0.95rem; }
 </style>
 </head>
 <body>
@@ -468,6 +541,80 @@
     </div>
   </div>
 
+  <!-- ===== CODENAMES ===== -->
+  <div id="codenames" hidden>
+    <!-- lobby -->
+    <div id="cn-lobby" class="cn-lobby" hidden>
+      <div style="font-size:2.5rem">🕵️</div>
+      <div class="big">Codenames</div>
+      <div id="cn-lobby-online" hidden>
+        <p style="color:#94a3b8">Pick your team, then one of you taps “Be spymaster”.</p>
+        <div class="cn-teamsel">
+          <button type="button" class="red" data-cnteam="red">Red team</button>
+          <button type="button" class="blue" data-cnteam="blue">Blue team</button>
+        </div>
+        <button type="button" class="cn-btn ghost" id="cn-spy-btn">Be spymaster</button>
+        <div class="cn-roster" id="cn-roster"></div>
+      </div>
+      <div id="cn-lobby-party" hidden>
+        <p style="color:#94a3b8">This phone is the spymasters' board. Wait for the host to start.</p>
+      </div>
+    </div>
+
+    <!-- play -->
+    <div id="cn-play" hidden style="display:flex;flex-direction:column">
+      <div class="cn-top">
+        <span class="sc red" id="cn-sc-red">9</span>
+        <span class="sc blue" id="cn-sc-blue">8</span>
+        <span class="msg" id="cn-role"></span>
+      </div>
+      <div class="cn-clueline" id="cn-clueline"></div>
+      <div class="cn-grid" id="cn-grid"></div>
+
+      <!-- spymaster clue input (online, your turn) -->
+      <div id="cn-clue-in" hidden>
+        <div class="cn-clue-form">
+          <input id="cn-clue-word" type="text" placeholder="one-word clue" autocapitalize="characters"
+                 autocomplete="off" autocorrect="off" spellcheck="false" maxlength="24" enterkeyhint="go">
+          <input id="cn-clue-num" type="number" min="0" max="9" placeholder="#">
+        </div>
+        <button class="cn-btn" id="cn-give-clue" type="button">Give clue</button>
+      </div>
+
+      <!-- operative controls (online, your turn) -->
+      <div id="cn-guess-in" hidden>
+        <button class="cn-btn ghost" id="cn-endturn" type="button">End our turn</button>
+      </div>
+
+      <!-- party turn control -->
+      <div id="cn-party-in" hidden>
+        <p style="text-align:center;color:#94a3b8;font-size:0.85rem;margin:0.5rem 0 0.3rem">Tap a card, choose what the guessing team hit.</p>
+        <div style="display:flex;gap:0.5rem">
+          <button class="cn-btn red" id="cn-turn-red" type="button" style="margin-top:0">Red's turn</button>
+          <button class="cn-btn blue" id="cn-turn-blue" type="button" style="margin-top:0">Blue's turn</button>
+        </div>
+      </div>
+
+      <!-- game over -->
+      <div id="cn-play-over" hidden style="text-align:center;margin-top:0.8rem">
+        <div class="big" id="cn-play-over-t"></div>
+        <p style="color:#94a3b8;margin-top:0.3rem">Waiting for the host…</p>
+      </div>
+    </div>
+
+    <div id="cn-picker" class="cn-picker" hidden>
+      <div class="box">
+        <h3 id="cn-picker-word"></h3>
+        <button style="background:#b32424;color:#fff" data-cover="red">Red agent</button>
+        <button style="background:#1f5fd0;color:#fff" data-cover="blue">Blue agent</button>
+        <button style="background:#cbb987;color:#4a3c1c" data-cover="innocent">Innocent bystander</button>
+        <button style="background:#111;color:#eee" data-cover="assassin">Assassin 💀</button>
+        <button style="background:#334155;color:#e2e8f0" data-cover="clear">Clear this card</button>
+        <button style="background:transparent;color:#64748b" data-cover="cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -582,7 +729,8 @@ function setView(game) {
   $("scat").hidden = game !== "scattergories";
   $("taboo").hidden = game !== "taboo";
   $("blackbox").hidden = game !== "blackbox";
-  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox"].includes(game);
+  $("codenames").hidden = game !== "codenames";
+  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
 }
 
@@ -1213,6 +1361,141 @@ function bbTick() {
   loop();
 }
 
+// ================= CODENAMES =================
+let cnMyTeam = null, cnPickI = null, cnGridSig = "", cnLastState = null;
+
+function renderCodenames(s) {
+  const c = s.codenames; if (!c) return;
+  cnLastState = c;
+  const lobby = c.phase === "lobby";
+  $("cn-lobby").hidden = !lobby;
+  $("cn-play").hidden = lobby;
+
+  if (lobby) {
+    $("cn-lobby-online").hidden = c.mode !== "online";
+    $("cn-lobby-party").hidden = c.mode === "online";
+    if (c.mode === "online") {
+      cnMyTeam = c.youTeam;
+      document.querySelectorAll("[data-cnteam]").forEach(b =>
+        b.classList.toggle("on", b.dataset.cnteam === c.youTeam));
+      const iSpy = c.youSpymaster === c.youTeam && c.youTeam;
+      $("cn-spy-btn").textContent = iSpy ? "✓ You're spymaster (tap to step down)" : "Be spymaster";
+      $("cn-spy-btn").disabled = !c.youTeam;
+      $("cn-roster").innerHTML = ["red", "blue"].map(t =>
+        `<div><b style="color:${t === "red" ? "#f87171" : "#60a5fa"}">${t === "red" ? "Red" : "Blue"}:</b> ${
+          (c.teams[t] || []).map(p => esc(p.name) + (p.spymaster ? " 🔍" : "")).join(", ") || "—"}</div>`).join("");
+    }
+    return;
+  }
+
+  const key = c.key || null;                        // present only for spymaster / party
+  const over = c.phase === "gameover";
+  const online = c.mode === "online";
+  const iSpy = c.youSpymaster;                      // "red"|"blue"|null
+  const myTurn = online && !iSpy && c.youTeam === c.turn && c.phase === "guess";
+  const iClue = online && iSpy && iSpy === c.turn && c.phase === "clue";
+  const party = c.mode === "party" && c.canControl;
+
+  // header
+  $("cn-sc-red").textContent = c.left.red;
+  $("cn-sc-blue").textContent = c.left.blue;
+  $("cn-sc-red").classList.toggle("act", c.turn === "red");
+  $("cn-sc-blue").classList.toggle("act", c.turn === "blue");
+  $("cn-role").textContent = party ? "Spymaster board"
+    : iSpy ? `Spymaster · ${iSpy === "red" ? "Red" : "Blue"}`
+    : c.youTeam ? `Operative · ${c.youTeam === "red" ? "Red" : "Blue"}` : "Spectator";
+
+  // clue line
+  if (over) {
+    $("cn-clueline").textContent = "";
+  } else if (party) {
+    $("cn-clueline").innerHTML = `<b style="color:${c.turn === "red" ? "#f87171" : "#60a5fa"}">${c.turn === "red" ? "RED" : "BLUE"}</b> is guessing`;
+  } else if (c.clue) {
+    const mine = c.clue.team === c.youTeam;
+    $("cn-clueline").innerHTML = `${mine ? "" : (c.clue.team === "red" ? "🔴 Red" : "🔵 Blue") + ": "}
+      <b>${esc(c.clue.word)}</b> &nbsp;${c.clue.number}${mine ? ` &nbsp;·&nbsp; ${Math.max(0, c.guessesLeft)} left` : ""}`;
+  } else if (iClue) {
+    $("cn-clueline").textContent = "Give your team a one-word clue and a number";
+  } else if (iSpy) {
+    $("cn-clueline").innerHTML = `Waiting for ${c.turn === "red" ? "Red" : "Blue"}'s clue…`;
+  } else {
+    $("cn-clueline").innerHTML = c.turn === c.youTeam
+      ? "Your spymaster is thinking…"
+      : `Waiting for ${c.turn === "red" ? "Red" : "Blue"}'s clue…`;
+  }
+
+  // grid
+  const canTap = party || myTurn || (iSpy && false);
+  const sig = JSON.stringify([c.words, c.covers, key, canTap]);
+  if (sig !== cnGridSig) {
+    cnGridSig = sig;
+    $("cn-grid").innerHTML = c.words.map((w, i) => {
+      const cov = c.covers[i];
+      const kk = (key && !cov) ? " key-" + key[i] : "";
+      const cc = cov ? " cov-" + cov + " covered" : "";
+      return `<div class="cn-c${kk}${cc}${canTap && !cov ? " tap" : ""}" data-i="${i}">
+        <span class="w">${esc(w)}</span></div>`;
+    }).join("");
+    $("cn-grid").querySelectorAll(".cn-c.tap").forEach(el =>
+      el.addEventListener("click", () => cnTapCard(+el.dataset.i)));
+  }
+  // keep the board square so the 5 rows stay even
+  const gw = $("cn-grid").clientWidth;
+  if (gw) $("cn-grid").style.height = gw + "px";
+
+  // controls
+  $("cn-clue-in").hidden = !iClue;
+  $("cn-guess-in").hidden = !myTurn;
+  $("cn-party-in").hidden = !(party && !over);
+  $("cn-play-over").hidden = !over;
+  if (party) {
+    $("cn-turn-red").classList.toggle("on", c.turn === "red");
+    $("cn-turn-blue").classList.toggle("on", c.turn === "blue");
+  }
+  if (myTurn) $("cn-endturn").disabled = c.guessedThisTurn < 1;
+  if (over) {
+    const won = c.youTeam && c.youTeam === c.winner;
+    const w = c.winner === "red" ? "Red" : "Blue";
+    $("cn-play-over-t").innerHTML = won ? "🎉 Your team wins!"
+      : c.winReason === "assassin" ? `${w} wins — someone hit the Assassin 💀`
+      : `${w} wins`;
+  }
+}
+
+function cnTapCard(i) {
+  const c = cnLastState;
+  if (!c) return;
+  if (c.mode === "party") {
+    cnPickI = i;
+    $("cn-picker-word").textContent = c.words[i];
+    $("cn-picker").hidden = false;
+  } else {
+    send("cnGuess", { i });              // online operative — immediate
+  }
+}
+
+document.querySelectorAll("[data-cnteam]").forEach(b =>
+  b.addEventListener("click", () => send("cnTeam", { team: b.dataset.cnteam })));
+$("cn-spy-btn").addEventListener("click", () => send("cnSpymaster"));
+$("cn-give-clue").addEventListener("click", () => {
+  const word = $("cn-clue-word").value.trim();
+  const num = parseInt($("cn-clue-num").value, 10);
+  if (!word || isNaN(num)) return;
+  send("cnClue", { word, number: num });
+  $("cn-clue-word").value = ""; $("cn-clue-num").value = "";
+});
+$("cn-clue-num").addEventListener("keydown", e => { if (e.key === "Enter") $("cn-give-clue").click(); });
+$("cn-endturn").addEventListener("click", () => send("cnEndTurn"));
+$("cn-turn-red").addEventListener("click", () => send("cnTurn", { team: "red" }));
+$("cn-turn-blue").addEventListener("click", () => send("cnTurn", { team: "blue" }));
+$("cn-picker").querySelectorAll("[data-cover]").forEach(b =>
+  b.addEventListener("click", () => {
+    const v = b.dataset.cover;
+    if (v === "clear") send("cnUncover", { i: cnPickI });
+    else if (v !== "cancel") send("cnGuess", { i: cnPickI, cover: v });
+    $("cn-picker").hidden = true; cnPickI = null;
+  }));
+
 // ---- keep-alive + polling ----
 let loopsOn = false;
 function startLoops() {
@@ -1261,6 +1544,8 @@ async function pollState() {
       renderTaboo(s);
     } else if (s.game === "blackbox") {
       renderBlackbox(s);
+    } else if (s.game === "codenames") {
+      renderCodenames(s);
     }
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -1271,6 +1556,7 @@ function s_poll_delay() {
   if (currentGame === "scattergories" && scPhase === "review") return 700;
   if (currentGame === "taboo" && (tbPhase === "turn" || tbPhase === "ready")) return 350;
   if (currentGame === "blackbox" && bbPhase === "judge") return 350;
+  if (currentGame === "codenames") return 400;
   return 500;
 }
 </script>

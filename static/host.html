@@ -253,6 +253,47 @@
   #view-blackbox .join { margin-top: 1.5rem; }
   .bb-lobby-players { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin: 1.25rem 0; }
   .bb-lobby-players span { background: #1e293b; border-radius: 999px; padding: 0.25rem 0.8rem; font-weight: 700; }
+
+  /* --- Codenames --- */
+  #view-codenames { width: min(1100px, 100%); display: flex; flex-direction: column; align-items: center; }
+  .cn-head { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; justify-content: center; }
+  .cn-score { display: flex; gap: 1rem; align-items: center; margin: 0.75rem 0 0.35rem; font-weight: 800; }
+  .cn-score .s { font-size: clamp(1.6rem, 5vw, 2.8rem); padding: 0.1rem 0.9rem; border-radius: 0.6rem; }
+  .cn-score .red  { color: #fecaca; background: #7f1d1d; }
+  .cn-score .blue { color: #bfdbfe; background: #1e3a8a; }
+  .cn-score .red.act, .cn-score .blue.act { outline: 3px solid #fff; }
+  .cn-clue { font-size: clamp(1.1rem, 3vw, 1.9rem); color: #cbd5e1; margin-bottom: 0.75rem; min-height: 1.4em; text-align: center; }
+  .cn-clue b { color: #fff; }
+
+  .cn-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: clamp(0.4rem, 1.2vw, 0.9rem); width: 100%; }
+  .cn-cell {
+    position: relative; aspect-ratio: 7 / 4; border-radius: 0.6rem;
+    background: #e7d9b8; color: #1a1206; border: 1px solid #b9a97f;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em;
+    font-size: clamp(0.7rem, 1.7vw, 1.25rem); padding: 0.2rem; line-height: 1.05;
+    overflow: hidden;
+  }
+  .cn-cell.k-red    { box-shadow: inset 0 0 0 3px #ef4444; }
+  .cn-cell.k-blue   { box-shadow: inset 0 0 0 3px #3b82f6; }
+  .cn-cell.k-innocent { box-shadow: inset 0 0 0 3px #d6c69a; }
+  .cn-cell.k-assassin { box-shadow: inset 0 0 0 3px #111; }
+  .cn-cell.c-red    { background: #b32424; color: #fff; box-shadow: none; }
+  .cn-cell.c-blue   { background: #1f5fd0; color: #fff; box-shadow: none; }
+  .cn-cell.c-innocent { background: #cbb987; color: #4a3c1c; box-shadow: none; }
+  .cn-cell.c-assassin { background: #111; color: #eee; box-shadow: none; }
+  .cn-cell.c-red .w, .cn-cell.c-blue .w, .cn-cell.c-assassin .w { opacity: 0.5; text-decoration: line-through; }
+  .cn-cell .agent { position: absolute; font-size: clamp(1rem, 3vw, 2rem); }
+
+  .cn-log { margin-top: 1rem; color: #64748b; font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; justify-content: center; }
+  .cn-log .r { color: #f87171; } .cn-log .b { color: #60a5fa; }
+  #view-codenames .join { margin-top: 1.25rem; }
+  .cn-teams { display: flex; gap: 2rem; flex-wrap: wrap; justify-content: center; margin: 1.25rem 0; }
+  .cn-team { min-width: 12rem; }
+  .cn-team h3 { font-size: 1.2rem; margin-bottom: 0.4rem; }
+  .cn-team.red h3 { color: #f87171; } .cn-team.blue h3 { color: #60a5fa; }
+  .cn-team .pl { display: block; padding: 0.15rem 0; }
+  .cn-team .pl.spy { font-weight: 800; } .cn-team .pl.spy::after { content: " 🔍"; }
 </style>
 </head>
 <body>
@@ -535,6 +576,46 @@
     </div>
   </div>
 
+  <!-- ============ CODENAMES ============ -->
+  <div id="view-codenames" hidden>
+    <div class="cn-head"><h1>Code<span>names</span></h1></div>
+
+    <!-- lobby -->
+    <div id="cn-lobby" style="display:flex;flex-direction:column;align-items:center;width:100%">
+      <div class="join">
+        <div class="label">On your phone, go to</div>
+        <div class="url" data-join-url>…</div>
+        <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
+        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+      </div>
+      <div class="settings">
+        <div class="setting">
+          <span class="lbl">Mode</span>
+          <span class="seg" role="group">
+            <button type="button" data-cnmode="online">Online — everyone plays on their phone</button>
+            <button type="button" data-cnmode="party">Party — 1 phone for the spymasters</button>
+          </span>
+        </div>
+      </div>
+      <div class="cn-teams" id="cn-lobby-teams"></div>
+      <p class="cn-clue" id="cn-lobby-msg"></p>
+      <button class="btn" id="cn-start" type="button">Start Game</button>
+    </div>
+
+    <!-- board (play / gameover) -->
+    <div id="cn-board" hidden style="display:flex;flex-direction:column;align-items:center;width:100%">
+      <div class="cn-score" id="cn-score"></div>
+      <div class="cn-clue" id="cn-clue"></div>
+      <div class="cn-grid" id="cn-grid"></div>
+      <div class="cn-log" id="cn-log"></div>
+      <div id="cn-over" hidden style="text-align:center;margin-top:1.25rem">
+        <h2 style="font-size:clamp(1.6rem,5vw,2.8rem)" id="cn-over-t">Red wins!</h2>
+        <button class="btn" id="cn-newgame" type="button" style="margin-top:1rem">New Game</button>
+        <button class="btn ghost" id="cn-lobbybtn" type="button" style="margin-top:1rem">Back to lobby</button>
+      </div>
+    </div>
+  </div>
+
   <div class="tb-flash" id="tb-flash"></div>
 
 <script>
@@ -583,17 +664,19 @@ let leaving = false;
 let lastState = null;
 function render(s) {
   lastState = s;
-  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox"].includes(s.game)) {
+  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames"].includes(s.game)) {
     location.href = "/"; return;
   }
   $("view-tap").hidden = s.game !== "tap-race";
   $("view-scat").hidden = s.game !== "scattergories";
   $("view-taboo").hidden = s.game !== "taboo";
   $("view-blackbox").hidden = s.game !== "blackbox";
+  $("view-codenames").hidden = s.game !== "codenames";
   if (s.game === "tap-race") renderTap(s);
   else if (s.game === "scattergories") renderScat(s);
   else if (s.game === "taboo") renderTaboo(s);
   else if (s.game === "blackbox") renderBlackbox(s);
+  else if (s.game === "codenames") renderCodenames(s);
 }
 
 // ================= TAP RACE =================
@@ -985,6 +1068,90 @@ $("bb-set-secs-apply").addEventListener("click", () => {
   const v = parseInt($("bb-set-secs").value, 10);
   if (v) post({ action: "blackboxSet", key: "selectSeconds", value: v });
 });
+
+// ================= CODENAMES =================
+const CN_AGENT = { red: "🕵️", blue: "🕵️", innocent: "🧑", assassin: "💀" };
+
+function renderCodenames(s) {
+  const c = s.codenames; if (!c) return;
+  const playing = c.phase !== "lobby";
+  $("cn-lobby").hidden = playing;
+  $("cn-board").hidden = !playing;
+
+  if (!playing) {
+    document.querySelectorAll("[data-cnmode]").forEach(b =>
+      b.classList.toggle("on", b.dataset.cnmode === c.mode));
+    if (c.mode === "party") {
+      $("cn-lobby-teams").innerHTML =
+        `<div class="cn-team"><h3>Party mode</h3><span class="pl">One phone runs the board for the spymasters. ${c.playerCount} phone${c.playerCount === 1 ? "" : "s"} connected.</span></div>`;
+      $("cn-lobby-msg").textContent = "Connect the spymasters' phone, then start.";
+      $("cn-start").disabled = false;
+    } else {
+      $("cn-lobby-teams").innerHTML = ["red", "blue"].map(t => `
+        <div class="cn-team ${t}"><h3>${t === "red" ? "Red" : "Blue"} team</h3>
+          ${(c.teams[t] || []).map(p => `<span class="pl ${p.spymaster ? "spy" : ""}">${esc(p.name)}</span>`).join("")
+            || '<span class="pl" style="opacity:.5">no one yet</span>'}</div>`).join("");
+      const ok = c.teams.red.length >= 2 && c.teams.blue.length >= 2
+        && c.teams.red.some(p => p.spymaster) && c.teams.blue.some(p => p.spymaster);
+      $("cn-lobby-msg").textContent = ok
+        ? "Both teams have 2+ players and a spymaster — start when ready."
+        : "Each team needs at least 2 players, one of them a spymaster (players pick on their phones).";
+      $("cn-start").disabled = !ok;
+    }
+    return;
+  }
+
+  // score
+  $("cn-score").innerHTML = ["red", "blue"].map(t =>
+    `<span class="s ${t} ${c.turn === t ? "act" : ""}">${c.left[t]}</span>`
+  ).join('<span style="color:#475569">·</span>');
+
+  // clue line
+  const over = c.phase === "gameover";
+  if (over) {
+    $("cn-clue").textContent = "";
+  } else if (c.mode === "party") {
+    $("cn-clue").innerHTML = `<b style="color:${c.turn === "red" ? "#f87171" : "#60a5fa"}">
+      ${c.turn === "red" ? "RED" : "BLUE"}</b>'s turn — spymaster gives a clue aloud`;
+  } else if (c.clue) {
+    $("cn-clue").innerHTML = `<b style="color:${c.clue.team === "red" ? "#f87171" : "#60a5fa"}">
+      ${c.clue.team === "red" ? "RED" : "BLUE"}</b> &nbsp;<b>${esc(c.clue.word)}</b> ${c.clue.number}
+      &nbsp;·&nbsp; ${Math.max(0, c.guessesLeft)} guess${c.guessesLeft === 1 ? "" : "es"} left`;
+  } else {
+    $("cn-clue").innerHTML = `Waiting for <b style="color:${c.turn === "red" ? "#f87171" : "#60a5fa"}">${c.turn === "red" ? "RED" : "BLUE"}</b>'s spymaster to give a clue…`;
+  }
+
+  // grid — server screen never shows the key, only what's been uncovered
+  $("cn-grid").innerHTML = c.words.map((w, i) => {
+    const cov = c.covers[i];
+    return `<div class="cn-cell ${cov ? "c-" + cov : ""}">
+      ${cov && cov !== "innocent" ? `<span class="agent">${CN_AGENT[cov]}</span>` : ""}
+      <span class="w">${esc(w)}</span></div>`;
+  }).join("");
+
+  // log
+  $("cn-log").innerHTML = (c.log || []).map(e => {
+    const cls = e.team === "red" ? "r" : "b";
+    if (e.kind === "clue") return `<span class="${cls}">${esc(e.text)}</span>`;
+    const icon = e.kind === "assassin" ? "💀" : e.kind === "innocent" ? "⬜"
+      : e.kind === "red" ? "🟥" : "🟦";
+    return `<span class="${cls}">${icon} ${esc(e.text)}</span>`;
+  }).join("");
+
+  $("cn-over").hidden = !over;
+  if (over) {
+    const w = c.winner === "red" ? "Red" : "Blue";
+    $("cn-over-t").innerHTML = c.winReason === "assassin"
+      ? `<span style="color:${c.winner === "red" ? "#f87171" : "#60a5fa"}">${w} wins</span> — the other team hit the Assassin 💀`
+      : `<span style="color:${c.winner === "red" ? "#f87171" : "#60a5fa"}">${w} wins!</span> 🎉`;
+  }
+}
+
+document.querySelectorAll("[data-cnmode]").forEach(b =>
+  b.addEventListener("click", () => post({ action: "cnMode", mode: b.dataset.cnmode })));
+$("cn-start").addEventListener("click", () => post({ action: "cnStart" }));
+$("cn-newgame").addEventListener("click", () => post({ action: "cnNewGame" }));
+$("cn-lobbybtn").addEventListener("click", () => post({ action: "cnLobby" }));
 
 // ---- live updates: poll /state (works through any proxy / tunnel; SSE didn't) ----
 function hostPollDelay() {
