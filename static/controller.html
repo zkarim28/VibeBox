@@ -1685,10 +1685,12 @@ function wiiFrame() {
     let ty = 0.5 - wiiShortest(wiiBeta - wiiBeta0) / (2 * degToEdge);
     tx = Math.max(0, Math.min(1, tx));
     ty = Math.max(0, Math.min(1, ty));
-    wiiSmX += (tx - wiiSmX) * 0.4;
-    wiiSmY += (ty - wiiSmY) * 0.4;
+    // light low-pass to kill raw sensor jitter; the host does the heavy
+    // temporal smoothing (buffered interpolation), so keep this gentle.
+    wiiSmX += (tx - wiiSmX) * 0.35;
+    wiiSmY += (ty - wiiSmY) * 0.35;
     const now = performance.now();
-    if (now - wiiLastSent > 55) {
+    if (now - wiiLastSent > 33) {          // ~30 Hz stream of samples
       wiiLastSent = now;
       wiiPost({ action: "wiiAim", x: +wiiSmX.toFixed(4), y: +wiiSmY.toFixed(4), a: wiiA, b: wiiB });
     }

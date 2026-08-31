@@ -395,11 +395,18 @@ def fresh_wii():
     the phones; they are NOT broadcast (the host polls /state fast instead)."""
     return {
         "sens": 1.8,            # pointer sensitivity (higher = less tilt to reach an edge)
-        "pointers": {},          # pid -> {x,y,a,b,aSeq,bSeq,stage,last}
+        "pointers": {},          # pid -> {x,y,a,b,aSeq,bSeq,stage,last,buf}
         "selection": None,       # {"pid","name","item","seq"} — last menu pick
         "selSeq": 0,
         "items": WII_ITEMS,
     }
+
+
+# aim samples are timestamped and buffered so the host can render the cursor a
+# little in the past, interpolating between real samples for smooth motion
+# instead of chasing one stale point. ~1 s of history is plenty.
+WII_BUF_SECS = 1.0
+WII_BUF_MAX = 48
 
 
 state = {
@@ -888,6 +895,9 @@ def _wii_public(for_pid=None):
             "aSeq": pt.get("aSeq", 0), "bSeq": pt.get("bSeq", 0),
             "stage": pt.get("stage", "verify"),
             "live": (now - pt.get("last", 0)) < 2.0,
+            # timestamped aim history for host-side interpolation
+            "samples": [[round(t, 3), round(sx, 4), round(sy, 4)]
+                        for t, sx, sy in pt.get("buf", [])],
         })
     out = {
         "sens": w["sens"],
@@ -895,6 +905,7 @@ def _wii_public(for_pid=None):
         "pointers": pointers,
         "selection": w["selection"],
         "playerCount": len(state["players"]),
+        "now": now,             # server clock, so the host can build one timeline
     }
     if for_pid is not None:
         pt = w["pointers"].get(for_pid)
@@ -1757,7 +1768,7 @@ def do_wii(pid, action, data, is_host=False):
         return {"ok": False, "error": "not_joined"}
     pt = w["pointers"].setdefault(pid, {
         "x": 0.5, "y": 0.5, "a": False, "b": False,
-        "aSeq": 0, "bSeq": 0, "stage": "verify", "last": 0.0,
+        "aSeq": 0, "bSeq": 0, "stage": "verify", "last": 0.0, "buf": [],
     })
     p["last_seen"] = time.time()
     p["connected"] = True
@@ -1777,7 +1788,15 @@ def do_wii(pid, action, data, is_host=False):
             return {"ok": False, "error": "bad"}
         pt["a"] = bool(data.get("a"))
         pt["b"] = bool(data.get("b"))
-        pt["last"] = time.time()
+        now = time.time()
+        pt["last"] = now
+        buf = pt.setdefault("buf", [])
+        buf.append((now, pt["x"], pt["y"]))
+        cutoff = now - WII_BUF_SECS
+        while len(buf) > 2 and buf[0][0] < cutoff:
+            buf.pop(0)
+        if len(buf) > WII_BUF_MAX:
+            del buf[:len(buf) - WII_BUF_MAX]
         return {"ok": True}          # deliberately no broadcast
 
     if action == "wiiBtn":
