@@ -356,6 +356,47 @@
   .cn-teamsel button.red.on { background: #7f1d1d; color: #fff; border-color: #ef4444; }
   .cn-teamsel button.blue.on { background: #1e3a8a; color: #fff; border-color: #3b82f6; }
   .cn-roster { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.6rem; color: #94a3b8; font-size: 0.95rem; }
+
+  /* --- Wii Sandbox --- */
+  #wii { flex: 1; display: flex; flex-direction: column; min-height: 82vh; min-height: 82dvh; }
+  #wii-ready { flex: 1; display: flex; flex-direction: column; padding-bottom: 8.5rem; }
+  .wii-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 1.5rem 1.25rem; gap: 0.9rem; }
+  .wii-screen h2 { font-size: 1.35rem; line-height: 1.3; }
+  .wii-screen p { color: #94a3b8; max-width: 22rem; }
+  .wii-sub { font-size: 0.85rem; color: #fbbf24; background: #1e293b; border-radius: 0.6rem; padding: 0.6rem 0.8rem; }
+  .wii-emoji { font-size: 3.5rem; }
+  .wii-primary { width: 100%; max-width: 20rem; font-size: 1.15rem; font-weight: 800;
+    padding: 1rem; border-radius: 0.9rem; border: 0; background: #38bdf8; color: #05070d; }
+  .wii-primary[disabled] { filter: grayscale(0.6) brightness(0.6); }
+  .wii-ghost { background: #1e293b; color: #e2e8f0; border: 0; font-weight: 700;
+    padding: 0.7rem 1.2rem; border-radius: 0.7rem; font-size: 0.95rem; }
+  .wii-note { min-height: 1.3em; font-size: 0.9rem; color: #fbbf24; }
+
+  .wii-level { position: relative; width: 60vw; max-width: 260px; aspect-ratio: 1;
+    border-radius: 50%; border: 2px solid #334155; background: #0f172a; }
+  .wii-target { position: absolute; left: 50%; top: 50%; width: 28%; aspect-ratio: 1;
+    transform: translate(-50%,-50%); border: 2px dashed #38bdf8; border-radius: 50%; }
+  .wii-bubble { position: absolute; left: 50%; top: 50%; width: 22%; aspect-ratio: 1;
+    margin: -11% 0 0 -11%; border-radius: 50%; background: #38bdf8;
+    box-shadow: 0 0 16px rgba(56,189,248,0.7); transition: transform 0.08s linear; }
+
+  .wii-topbar { display: flex; align-items: center; justify-content: space-between;
+    padding: 0.7rem 0.2rem; color: #94a3b8; font-size: 0.95rem; }
+  .wii-recenter { background: #1e293b; color: #e2e8f0; border: 0; border-radius: 0.6rem;
+    padding: 0.45rem 0.75rem; font-size: 0.85rem; font-weight: 700; }
+  .wii-aimzone { flex: 1; display: flex; align-items: center; justify-content: center;
+    border: 2px dashed #1e293b; border-radius: 1rem; margin: 0.3rem 0 1rem; }
+  .wii-cross { font-size: 3rem; color: #334155; }
+  .wii-btn { position: fixed; bottom: calc(env(safe-area-inset-bottom) + 1.6rem);
+    width: 5.2rem; height: 5.2rem; border-radius: 50%; border: 0;
+    font-size: 2rem; font-weight: 900; color: #fff; touch-action: none;
+    box-shadow: 0 6px 0 rgba(0,0,0,0.35), 0 10px 22px rgba(0,0,0,0.4);
+    -webkit-user-select: none; user-select: none;
+  }
+  .wii-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,0.35); }
+  .wii-a { left: 1.6rem; background: radial-gradient(circle at 35% 30%, #4ade80, #16a34a); }
+  .wii-b { right: 1.6rem; background: radial-gradient(circle at 35% 30%, #fca5a5, #dc2626); }
 </style>
 </head>
 <body>
@@ -615,6 +656,48 @@
     </div>
   </div>
 
+  <!-- ===== WII SANDBOX ===== -->
+  <div id="wii" hidden>
+    <!-- verify -->
+    <div id="wii-verify" class="wii-screen" hidden>
+      <div class="wii-emoji">🎮</div>
+      <h2>Are you on a phone with gyroscope capabilities?</h2>
+      <p>The Wii Sandbox uses your phone's motion sensors to point at the big screen.
+         iPhones and most Android phones have them.</p>
+      <p class="wii-sub" id="wii-verify-secure" hidden>⚠️ On iPhone, motion controls
+         only work over an <b>https</b> link. Tap the secure-link button below —
+         your phone will show a one-time "Not Private" warning; choose
+         <b>Show Details → visit this website</b> to continue.</p>
+      <button class="wii-primary" id="wii-verify-secure-go" type="button" hidden>
+        🔒 Switch to the secure link</button>
+      <button class="wii-primary" id="wii-verify-yes" type="button">Yes — let's go</button>
+      <p class="wii-note" id="wii-verify-msg"></p>
+      <button class="wii-ghost" id="wii-verify-anyway" type="button" hidden>Try anyway</button>
+    </div>
+
+    <!-- calibrate -->
+    <div id="wii-cal" class="wii-screen" hidden>
+      <h2>Lay your phone flat</h2>
+      <p>Rest it screen-up on a table and hold still to set your zero plane.</p>
+      <div class="wii-level"><div class="wii-bubble" id="wii-bubble"></div><div class="wii-target"></div></div>
+      <button class="wii-primary" id="wii-cal-set" type="button" disabled>Set zero</button>
+      <p class="wii-note" id="wii-cal-msg">Getting a reading…</p>
+    </div>
+
+    <!-- pointer -->
+    <div id="wii-ready" hidden>
+      <div class="wii-topbar">
+        <span id="wii-ready-msg">Aim at the big screen</span>
+        <button class="wii-recenter" id="wii-recenter" type="button">⟲ Re-center</button>
+      </div>
+      <div class="wii-aimzone">
+        <div class="wii-cross">+</div>
+      </div>
+      <button class="wii-btn wii-a" id="wii-a" type="button">A</button>
+      <button class="wii-btn wii-b" id="wii-b" type="button">B</button>
+    </div>
+  </div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -715,6 +798,22 @@ $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); })
 const _qs = new URLSearchParams(location.search);
 if (_qs.get("code")) $("code").value = _qs.get("code").slice(0, 6).toUpperCase();
 
+// hopping between the :8000 and :8443 origins carries ?pid=&token= so we
+// re-attach to the exact same player record (one seat, no duplicate). Adopt
+// them, then scrub them from the address bar so they aren't bookmarked/shared.
+if (_qs.get("pid") && _qs.get("token")) {
+  try {
+    localStorage.setItem(IDKEY, JSON.stringify({
+      pid: +_qs.get("pid"), token: _qs.get("token") }));
+  } catch (e) {}
+  try {
+    const clean = new URLSearchParams(location.search);
+    clean.delete("pid"); clean.delete("token");
+    history.replaceState(null, "", location.pathname
+      + (clean.toString() ? "?" + clean.toString() : ""));
+  } catch (e) {}
+}
+
 (async () => {
   // already played on this phone? slip straight back into our old seat.
   if (await tryResume()) { $("waiting").hidden = false; startLoops(); return; }
@@ -730,8 +829,11 @@ function setView(game) {
   $("taboo").hidden = game !== "taboo";
   $("blackbox").hidden = game !== "blackbox";
   $("codenames").hidden = game !== "codenames";
-  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames"].includes(game);
+  $("wii").hidden = game !== "wii-sandbox";
+  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
+  if (game === "wii-sandbox") wiiEnsureLoop();
+  else wiiMaybeGoHome(game);   // left Wii on the https twin? go back to :8000
 }
 
 // ---- sending input ----
@@ -1496,6 +1598,239 @@ $("cn-picker").querySelectorAll("[data-cover]").forEach(b =>
     $("cn-picker").hidden = true; cnPickI = null;
   }));
 
+// ================= WII SANDBOX =================
+let wiiStage = "verify";         // local mirror of our server stage
+let wiiHaveMotion = false, wiiBeta = 0, wiiGamma = 0;   // latest raw reading
+let wiiBeta0 = 0, wiiGamma0 = 0;                        // calibrated zero plane
+let wiiSmX = 0.5, wiiSmY = 0.5;                         // smoothed pointer
+let wiiA = false, wiiB = false;
+let wiiSens = 2.4, wiiLastSent = 0, wiiLoop = false, wiiCalGood = 0;
+let wiiHttpsPort = null;         // TLS-twin port, from /config (null if no twin)
+let wiiHttpPort = null;          // plain port, from /config
+
+fetch("/config").then(r => r.json()).then(c => {
+  wiiHttpsPort = (c && c.httpsPort) || null;
+  wiiHttpPort = (c && c.httpPort) || null;
+  if (currentGame === "wii-sandbox") renderWiiScreens();
+  wiiMaybeGoHome(currentGame);   // in case we're stranded on the twin already
+}).catch(() => {});
+
+// are we on the self-signed HTTPS twin (…:8443) rather than the normal link?
+function onHttpsTwin() {
+  return !!wiiHttpsPort && location.port === String(wiiHttpsPort);
+}
+
+// build "the same page, other port" carrying enough to re-attach as the SAME
+// player (pid+token) so hopping ports never spawns a duplicate.
+function wiiPortUrl(proto, port) {
+  const qs = new URLSearchParams(location.search);
+  if (ROOM && !qs.get("code")) qs.set("code", ROOM);
+  if (myName && !qs.get("name")) qs.set("name", myName);
+  if (pid && token) { qs.set("pid", pid); qs.set("token", token); }
+  return proto + "//" + location.hostname + ":" + port
+    + location.pathname + "?" + qs.toString();
+}
+
+// the https address of this page on the twin — where iPhones get motion sensors.
+function wiiSecureUrl() {
+  if (window.isSecureContext || !wiiHttpsPort) return null;
+  return wiiPortUrl("https:", wiiHttpsPort);
+}
+
+// once the game is no longer Wii Sandbox, a phone sitting on the twin should
+// slide back to the normal http link (stable across server restarts, no cert
+// nag) — re-attaching as the same player, so no duplicate appears.
+function wiiMaybeGoHome(game) {
+  if (game && game !== "wii-sandbox" && onHttpsTwin() && wiiHttpPort) {
+    location.replace(wiiPortUrl("http:", wiiHttpPort));
+  }
+}
+
+function wiiOnOrient(e) {
+  if (e.beta == null || e.gamma == null) return;
+  wiiHaveMotion = true;
+  wiiBeta = e.beta; wiiGamma = e.gamma;
+}
+
+function wiiShortest(d) { while (d > 180) d -= 360; while (d < -180) d += 360; return d; }
+
+function wiiEnsureLoop() {
+  window.addEventListener("deviceorientation", wiiOnOrient);
+  if (wiiLoop) return;
+  wiiLoop = true;
+  const tick = () => {
+    if (currentGame === "wii-sandbox") wiiFrame();
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function wiiFrame() {
+  if (wiiStage === "calibrate" && $("wii-cal") && !$("wii-cal").hidden) {
+    // bubble level
+    const bx = Math.max(-1, Math.min(1, wiiGamma / 45));
+    const by = Math.max(-1, Math.min(1, wiiBeta / 45));
+    const bub = $("wii-bubble");
+    if (bub) bub.style.transform = `translate(${bx * 90}%, ${by * 90}%)`;
+    const flat = wiiHaveMotion && Math.abs(wiiBeta) < 9 && Math.abs(wiiGamma) < 9;
+    wiiCalGood = flat ? wiiCalGood + 1 : 0;
+    $("wii-cal-set").disabled = !flat;
+    $("wii-cal-msg").textContent = !wiiHaveMotion ? "Waiting for the sensor…"
+      : flat ? "Looking level — tap Set zero" : "Lay it flatter…";
+    if (wiiCalGood > 90) wiiSetZero();     // auto-set after ~1.5s steady
+  }
+  if (wiiStage === "ready" && wiiHaveMotion) {
+    const degToEdge = 45 / (wiiSens || 1.8);   // tilt (deg) from centre to a screen edge
+    let tx = 0.5 + wiiShortest(wiiGamma - wiiGamma0) / (2 * degToEdge);
+    let ty = 0.5 - wiiShortest(wiiBeta - wiiBeta0) / (2 * degToEdge);
+    tx = Math.max(0, Math.min(1, tx));
+    ty = Math.max(0, Math.min(1, ty));
+    wiiSmX += (tx - wiiSmX) * 0.4;
+    wiiSmY += (ty - wiiSmY) * 0.4;
+    const now = performance.now();
+    if (now - wiiLastSent > 55) {
+      wiiLastSent = now;
+      wiiPost({ action: "wiiAim", x: +wiiSmX.toFixed(4), y: +wiiSmY.toFixed(4), a: wiiA, b: wiiB });
+    }
+  }
+}
+
+function wiiPost(body) {
+  if (!pid) return;
+  fetch("/input", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(Object.assign({ pid }, body)), keepalive: true }).catch(() => {});
+}
+
+function wiiSetStage(st) {
+  wiiStage = st;
+  send("wiiStage", { stage: st });
+  renderWiiScreens();
+}
+function renderWiiScreens() {
+  $("wii-verify").hidden = wiiStage !== "verify";
+  $("wii-cal").hidden = wiiStage !== "calibrate";
+  $("wii-ready").hidden = wiiStage !== "ready";
+  const secureUrl = wiiSecureUrl();
+  $("wii-verify-secure").hidden = window.isSecureContext;
+  $("wii-verify-secure").innerHTML = secureUrl
+    ? "⚠️ On iPhone, motion controls only work over an <b>https</b> link. Tap "
+      + "the button below — your phone shows a one-time “Not Private” warning; "
+      + "choose <b>Show Details → visit this website</b> to continue."
+    : "⚠️ On iPhone, motion controls only work over an <b>https</b> link. "
+      + "Switch the game to <b>Public</b> mode on the big screen and rejoin.";
+  $("wii-verify-secure-go").hidden = !secureUrl;
+  // when the secure-link button is the right move, make it the only bright one
+  $("wii-verify-yes").classList.toggle("wii-ghost", !!secureUrl);
+  $("wii-verify-yes").classList.toggle("wii-primary", !secureUrl);
+}
+
+function renderWii(s) {
+  const w = s.wii; if (!w) return;
+  wiiSens = w.sens || wiiSens;
+  // the phone drives its own verify -> calibrate -> ready flow; the only thing
+  // the server pushes back is a host "Reset" (stage snaps to verify)
+  if ((w.youStage || "verify") === "verify" && wiiStage !== "verify") wiiStage = "verify";
+  renderWiiScreens();
+  if (wiiStage === "ready") {
+    const sel = w.selection;
+    $("wii-ready-msg").textContent = (sel && sel.pid === pid)
+      ? "You picked " + ((w.items.find(it => it.id === sel.item) || {}).name || "it") + " — press B to go back"
+      : "Aim at the big screen · A to pick";
+  }
+}
+
+function wiiFail(text) {
+  $("wii-verify-msg").innerHTML = text;
+  $("wii-verify-yes").disabled = false;
+  $("wii-verify-anyway").hidden = false;
+}
+
+async function wiiVerifyGo() {
+  const msg = $("wii-verify-msg");
+  msg.textContent = "Checking motion sensors…";
+  $("wii-verify-yes").disabled = true;
+
+  const isiOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const needsPerm = typeof DeviceOrientationEvent !== "undefined"
+    && typeof DeviceOrientationEvent.requestPermission === "function";
+
+  // iOS blocks motion sensors entirely unless the page is served over HTTPS.
+  // The LAN link (http://…) can't use them. Prefer bouncing to the local TLS
+  // twin; fall back to telling them to use Public mode.
+  if (!window.isSecureContext && (isiOS || !needsPerm)) {
+    const secureUrl = wiiSecureUrl();
+    if (secureUrl) {
+      msg.innerHTML = "iPhones need an <b>https</b> link for motion. Tap "
+        + "<b>Switch to the secure link</b> above — accept the one-time "
+        + "“Not Private” warning (Show Details → visit this website).";
+      $("wii-verify-yes").disabled = false;
+      return;
+    }
+    wiiFail("iPhones only allow motion controls over a <b>secure (https)</b> "
+      + "link. On the big screen, start the game in <b>Public</b> mode "
+      + "(Cloudflare tunnel) and rejoin from that https link — the plain "
+      + "Wi-Fi/LAN link can't use the gyroscope.");
+    return;
+  }
+
+  try {
+    if (needsPerm) {
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r !== "granted") {
+        wiiFail("Motion access was blocked. Turn on <b>Settings → Safari → "
+          + "Motion &amp; Orientation Access</b>, then reload this page.");
+        return;
+      }
+    }
+    window.addEventListener("deviceorientation", wiiOnOrient);
+    wiiHaveMotion = false;
+    setTimeout(() => {
+      $("wii-verify-yes").disabled = false;
+      if (wiiHaveMotion) { msg.textContent = ""; $("wii-verify-anyway").hidden = true; wiiSetStage("calibrate"); }
+      else if (!window.isSecureContext) {
+        wiiFail("No motion data — this link isn't https. "
+          + (wiiSecureUrl()
+             ? "Tap <b>Switch to the secure link</b> above."
+             : "Use the <b>Public</b> (tunnel) link from the big screen."));
+      } else {
+        wiiFail("Couldn't read a gyroscope. Is this a phone? Motion controls "
+          + "won't work on a laptop.");
+      }
+    }, 1500);
+  } catch (e) {
+    wiiFail("Motion sensors aren't available here (" + (e && e.message || e) + ").");
+  }
+}
+function wiiSetZero() {
+  wiiBeta0 = wiiBeta; wiiGamma0 = wiiGamma;
+  wiiSmX = wiiSmY = 0.5; wiiCalGood = 0;
+  wiiSetStage("ready");
+}
+
+$("wii-verify-yes").addEventListener("click", wiiVerifyGo);
+$("wii-verify-secure-go").addEventListener("click", () => {
+  const u = wiiSecureUrl();
+  if (u) location.href = u;
+});
+$("wii-verify-anyway").addEventListener("click", () => wiiSetStage("calibrate"));
+$("wii-cal-set").addEventListener("click", wiiSetZero);
+$("wii-recenter").addEventListener("click", () => { wiiBeta0 = wiiBeta; wiiGamma0 = wiiGamma; });
+
+function wiiBind(el, btn) {
+  const down = e => { e.preventDefault(); if (btn === "a") wiiA = true; else wiiB = true;
+    wiiPost({ action: "wiiBtn", btn, down: true }); if (navigator.vibrate) navigator.vibrate(10); };
+  const up = e => { e.preventDefault(); if (btn === "a") wiiA = false; else wiiB = false;
+    wiiPost({ action: "wiiBtn", btn, down: false }); };
+  el.addEventListener("touchstart", down, { passive: false });
+  el.addEventListener("touchend", up, { passive: false });
+  el.addEventListener("touchcancel", up, { passive: false });
+  el.addEventListener("mousedown", down);
+  el.addEventListener("mouseup", up);
+}
+wiiBind($("wii-a"), "a");
+wiiBind($("wii-b"), "b");
+
 // ---- keep-alive + polling ----
 let loopsOn = false;
 function startLoops() {
@@ -1546,6 +1881,8 @@ async function pollState() {
       renderBlackbox(s);
     } else if (s.game === "codenames") {
       renderCodenames(s);
+    } else if (s.game === "wii-sandbox") {
+      renderWii(s);
     }
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -1557,6 +1894,7 @@ function s_poll_delay() {
   if (currentGame === "taboo" && (tbPhase === "turn" || tbPhase === "ready")) return 350;
   if (currentGame === "blackbox" && bbPhase === "judge") return 350;
   if (currentGame === "codenames") return 400;
+  if (currentGame === "wii-sandbox") return 500;
   return 500;
 }
 </script>

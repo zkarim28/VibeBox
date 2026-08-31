@@ -1,0 +1,12 @@
+GUI
+1. Cloud flare does not work on all networks? I am able to open a tunnel on my apartment shared network, but I am not able to open up a public connection on my schools eduroam network nor the Cornell university wifi? Or maybe cloudflare is down? maybe also poll cloudflare somehow to ensure their servers are up before i can select the public game.
+
+GAMES
+Scattergories
+- N/A
+
+CodeNames
+- Do I have reconnectivity features?
+
+Taboo
+- Do I have reconnectivity features?

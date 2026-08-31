@@ -294,6 +294,54 @@
   .cn-team.red h3 { color: #f87171; } .cn-team.blue h3 { color: #60a5fa; }
   .cn-team .pl { display: block; padding: 0.15rem 0; }
   .cn-team .pl.spy { font-weight: 800; } .cn-team .pl.spy::after { content: " 🔍"; }
+
+  /* --- Wii Sandbox --- */
+  #view-wii { width: min(1200px, 100%); display: flex; flex-direction: column; align-items: center; }
+  .wii-hd { display: flex; align-items: center; gap: 1.5rem; }
+  .wii-stage {
+    position: relative; width: 100%; aspect-ratio: 16 / 9; margin-top: 1rem;
+    background: radial-gradient(1000px 600px at 50% 20%, #16223b, #0b1120);
+    border: 1px solid #1e293b; border-radius: 1rem; overflow: hidden;
+  }
+  .wii-menu {
+    position: absolute; inset: 8% 6%; display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: clamp(0.6rem, 2vw, 1.5rem); align-content: center;
+  }
+  .wii-tile {
+    background: #111c33; border: 2px solid #253048; border-radius: 1rem;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0.4rem; padding: 1rem; font-weight: 800; font-size: clamp(1rem, 2vw, 1.5rem);
+    transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+  }
+  .wii-tile .em { font-size: clamp(2rem, 5vw, 3.5rem); }
+  .wii-tile.hover { transform: scale(1.05); }
+  .wii-tile.flash { animation: wiiflash 0.5s ease-out; }
+  @keyframes wiiflash { 0% { box-shadow: 0 0 0 0 currentColor; } 100% { box-shadow: 0 0 0 40px transparent; } }
+
+  .wii-cursor {
+    position: absolute; width: 42px; height: 42px; margin: -21px 0 0 -21px;
+    border-radius: 50%; border: 3px solid #fff; pointer-events: none; z-index: 20;
+    transition: none; display: flex; align-items: center; justify-content: center;
+  }
+  .wii-cursor::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .wii-cursor.press { transform: scale(0.8); }
+  .wii-cursor .lbl {
+    position: absolute; top: -1.4rem; font-size: 0.8rem; font-weight: 800;
+    white-space: nowrap; text-shadow: 0 1px 3px #000;
+  }
+
+  .wii-activity { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; gap: 0.5rem;
+    background: rgba(11,17,32,0.92); z-index: 10; }
+  .wii-activity .em { font-size: clamp(3rem, 10vw, 7rem); }
+  .wii-activity h2 { font-size: clamp(1.5rem, 4vw, 3rem); }
+  .wii-activity p { color: #94a3b8; }
+
+  .wii-lobby { width: 100%; display: flex; flex-direction: column; align-items: center; margin-top: 1.25rem; }
+  .wii-hint { color: #94a3b8; margin: 1rem 0 0.5rem; font-size: clamp(1rem, 2.2vw, 1.3rem); }
+  .wii-players { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+  .wii-players span { background: #1e293b; border-radius: 999px; padding: 0.25rem 0.85rem; font-weight: 700; }
+  .wii-players span.rdy { background: #14532d; color: #bbf7d0; }
 </style>
 </head>
 <body>
@@ -616,6 +664,29 @@
     </div>
   </div>
 
+  <!-- ============ WII SANDBOX ============ -->
+  <div id="view-wii" hidden>
+    <div class="wii-hd"><h1>Wii <span>Sandbox</span></h1>
+      <button class="btn ghost" id="wii-reset" type="button">Reset</button></div>
+
+    <div class="wii-stage" id="wii-stage">
+      <div class="wii-menu" id="wii-menu"></div>
+      <div class="wii-activity" id="wii-activity" hidden></div>
+      <!-- cursors injected here -->
+    </div>
+
+    <div class="wii-lobby" id="wii-lobby">
+      <div class="join">
+        <div class="label">On your phone, go to</div>
+        <div class="url" data-join-url>…</div>
+        <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
+        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+      </div>
+      <p class="wii-hint" id="wii-lobby-msg">Waiting for phones…</p>
+      <div class="wii-players" id="wii-players"></div>
+    </div>
+  </div>
+
   <div class="tb-flash" id="tb-flash"></div>
 
 <script>
@@ -664,7 +735,7 @@ let leaving = false;
 let lastState = null;
 function render(s) {
   lastState = s;
-  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames"].includes(s.game)) {
+  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox"].includes(s.game)) {
     location.href = "/"; return;
   }
   $("view-tap").hidden = s.game !== "tap-race";
@@ -672,11 +743,13 @@ function render(s) {
   $("view-taboo").hidden = s.game !== "taboo";
   $("view-blackbox").hidden = s.game !== "blackbox";
   $("view-codenames").hidden = s.game !== "codenames";
+  $("view-wii").hidden = s.game !== "wii-sandbox";
   if (s.game === "tap-race") renderTap(s);
   else if (s.game === "scattergories") renderScat(s);
   else if (s.game === "taboo") renderTaboo(s);
   else if (s.game === "blackbox") renderBlackbox(s);
   else if (s.game === "codenames") renderCodenames(s);
+  else if (s.game === "wii-sandbox") renderWii(s);
 }
 
 // ================= TAP RACE =================
@@ -1153,9 +1226,124 @@ $("cn-start").addEventListener("click", () => post({ action: "cnStart" }));
 $("cn-newgame").addEventListener("click", () => post({ action: "cnNewGame" }));
 $("cn-lobbybtn").addEventListener("click", () => post({ action: "cnLobby" }));
 
+// ================= WII SANDBOX =================
+const wiiCur = {};          // pid -> {sx, sy, tx, ty, el, lblEl, aSeq, bSeq, hover}
+let wiiItems = [], wiiBuilt = false, wiiRAFon = false;
+
+$("wii-reset").addEventListener("click", () => post({ action: "wiiReset" }));
+
+function renderWii(s) {
+  const w = s.wii; if (!w) return;
+  wiiItems = w.items || [];
+  if (!wiiBuilt || $("wii-menu").children.length !== wiiItems.length) {
+    $("wii-menu").innerHTML = wiiItems.map(it =>
+      `<div class="wii-tile" data-item="${it.id}"><span class="em">${it.em || it.emoji || "•"}</span>${esc(it.name)}</div>`).join("");
+    wiiBuilt = true;
+  }
+
+  const ready = (w.pointers || []).filter(p => p.stage === "ready" && p.live);
+  const anyReady = ready.length > 0;
+  $("wii-lobby").hidden = anyReady;
+  $("wii-stage").style.opacity = anyReady ? 1 : 0.35;
+
+  if (!anyReady) {
+    const total = (w.pointers || []).length;
+    $("wii-lobby-msg").textContent = total === 0
+      ? "Waiting for phones… open the link and answer the gyroscope check."
+      : `${ready.length} pointing · ${total} connected`;
+    $("wii-players").innerHTML = (w.pointers || []).map(p => {
+      const label = p.stage === "ready" ? "aiming" : p.stage === "calibrate" ? "calibrating" : "verifying";
+      return `<span class="${p.stage === "ready" ? "rdy" : ""}" style="color:${p.color}">${esc(p.name)} · ${label}</span>`;
+    }).join("");
+  }
+
+  // activity overlay
+  const sel = w.selection;
+  $("wii-activity").hidden = !sel;
+  if (sel) {
+    const it = wiiItems.find(x => x.id === sel.item) || {};
+    $("wii-activity").innerHTML =
+      `<div class="em">${it.em || it.emoji || "🎮"}</div>
+       <h2 style="color:${sel.color}">${esc(sel.name)} — ${esc(it.name || sel.item)}</h2>
+       <p>🚧 Sandbox activity coming soon. Aim back and press <b>B</b> to return to the menu.</p>`;
+  }
+
+  // ---- pointers ----
+  const seen = new Set();
+  for (const p of (w.pointers || [])) {
+    if (!p.live) continue;
+    seen.add(p.pid);
+    let c = wiiCur[p.pid];
+    if (!c) {
+      const el = document.createElement("div");
+      el.className = "wii-cursor";
+      el.style.color = p.color;
+      el.innerHTML = `<span class="lbl" style="color:${p.color}">${esc(p.name)}</span>`;
+      $("wii-stage").appendChild(el);
+      c = wiiCur[p.pid] = { sx: p.x, sy: p.y, el, aSeq: p.aSeq, bSeq: p.bSeq };
+    }
+    c.tx = p.x; c.ty = p.y; c.el.classList.toggle("press", p.a);
+    // A-press edge -> select whatever tile the cursor is over
+    if (p.aSeq !== c.aSeq) {
+      c.aSeq = p.aSeq;
+      if (!sel) {
+        const tile = wiiTileAt(c.sx, c.sy);
+        if (tile) {
+          tile.classList.add("flash"); setTimeout(() => tile.classList.remove("flash"), 500);
+          post({ action: "wiiSelect", pid: p.pid, item: tile.dataset.item });
+        }
+      }
+    }
+    // B-press -> leave the activity (only the player who is "in" it)
+    if (p.bSeq !== c.bSeq) {
+      c.bSeq = p.bSeq;
+      if (sel && sel.pid === p.pid) post({ action: "wiiOpen" });
+    }
+  }
+  for (const pid of Object.keys(wiiCur)) {
+    if (!seen.has(+pid)) { wiiCur[pid].el.remove(); delete wiiCur[pid]; }
+  }
+  wiiStartRAF();
+}
+
+function wiiTileAt(x, y) {
+  const stage = $("wii-stage").getBoundingClientRect();
+  const px = stage.left + x * stage.width, py = stage.top + y * stage.height;
+  for (const t of $("wii-menu").querySelectorAll(".wii-tile")) {
+    const r = t.getBoundingClientRect();
+    if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) return t;
+  }
+  return null;
+}
+
+function wiiStartRAF() {
+  if (wiiRAFon) return;
+  wiiRAFon = true;
+  const loop = () => {
+    if (!lastState || lastState.game !== "wii-sandbox") { wiiRAFon = false; return; }
+    const stage = $("wii-stage");
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const hovered = new Set();
+    for (const c of Object.values(wiiCur)) {
+      c.sx += ((c.tx ?? c.sx) - c.sx) * 0.35;
+      c.sy += ((c.ty ?? c.sy) - c.sy) * 0.35;
+      c.el.style.left = (c.sx * W) + "px";
+      c.el.style.top = (c.sy * H) + "px";
+      const t = wiiTileAt(c.sx, c.sy);
+      if (t) { t.classList.add("hover"); t.style.borderColor = c.el.style.color; hovered.add(t); }
+    }
+    $("wii-menu").querySelectorAll(".wii-tile").forEach(t => {
+      if (!hovered.has(t)) { t.classList.remove("hover"); t.style.borderColor = ""; }
+    });
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+}
+
 // ---- live updates: poll /state (works through any proxy / tunnel; SSE didn't) ----
 function hostPollDelay() {
   const s = lastState;
+  if (s && s.game === "wii-sandbox") return 90;
   if (s && s.game === "taboo" && s.taboo && (s.taboo.phase === "turn" || s.taboo.phase === "ready")) return 300;
   if (s && s.game === "blackbox" && s.blackbox && s.blackbox.phase === "judge") return 300;
   return 550;

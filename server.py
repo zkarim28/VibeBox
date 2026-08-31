@@ -18,6 +18,7 @@ import secrets
 import shutil
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import threading
@@ -35,6 +36,17 @@ import taboo          # local, Taboo card deck
 
 HOST = "0.0.0.0"
 PORT = 8000
+# A second listener that serves the exact same site over HTTPS with a throwaway
+# self-signed cert. Its only reason to exist: iOS Safari refuses to hand a page
+# the gyroscope / motion sensors unless the page is a "secure context", and a
+# plain LAN http:// link never is. Phones that need motion (the Wii Sandbox)
+# upgrade themselves to this port and click past the one-time cert warning — no
+# Cloudflare tunnel, no internet round-trip, no lag. Disabled automatically if
+# `openssl` isn't on PATH or the port is taken.
+HTTPS_PORT = int(os.environ.get("HTTPS_PORT", "8443"))
+NO_HTTPS = os.environ.get("NO_HTTPS", "").strip() not in ("", "0", "false", "no")
+HTTPS_OK = False            # set True once the TLS listener is actually up
+_CERT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".certs")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 GOAL = 40                     # taps needed to win
@@ -77,6 +89,7 @@ HOST_ONLY = {
     "tabooEndGame", "tabooNewGame",
     "blackboxStart", "blackboxSet", "blackboxNewGame", "blackboxEndGame",
     "cnStart", "cnMode", "cnNewGame", "cnLobby", "cnAutoTeam",
+    "wiiReset", "wiiSelect", "wiiOpen", "wiiSens",
 }
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
@@ -121,6 +134,14 @@ GAMES = [
         "players": "4-8 players · 2 teams",
         "status": "ready",
         "emoji": "\N{SLEUTH OR SPY}",
+    },
+    {
+        "id": "wii-sandbox",
+        "name": "Wii Sandbox",
+        "tagline": "Point your phone at the screen like a Wii remote. Experimental motion controls.",
+        "players": "1-8 players",
+        "status": "ready",
+        "emoji": "\N{VIDEO GAME}",
     },
     {
         "id": "doodle-dash",
@@ -168,6 +189,68 @@ def lan_ip():
         return "127.0.0.1"
     finally:
         s.close()
+
+
+def local_ipv4s():
+    """Every IPv4 address this machine answers to — the phone might be on a
+    different interface than the default route."""
+    ips = {"127.0.0.1", lan_ip()}
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except socket.gaierror:
+        pass
+    return sorted(i for i in ips if i and not i.startswith("169.254."))
+
+
+def ensure_self_signed_cert():
+    """Make a fresh self-signed cert covering the current local IPs and return
+    (cert_path, key_path). Regenerated every start so a new Wi-Fi network (new
+    IP) is always covered. Returns None if `openssl` isn't available."""
+    if not shutil.which("openssl"):
+        return None
+    os.makedirs(_CERT_DIR, exist_ok=True)
+    cert = os.path.join(_CERT_DIR, "vibebox.crt")
+    key = os.path.join(_CERT_DIR, "vibebox.key")
+    sans = ["DNS:localhost"] + [f"IP:{ip}" for ip in local_ipv4s()]
+    try:
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256",
+             "-days", "3650", "-nodes", "-keyout", key, "-out", cert,
+             "-subj", "/CN=VibeBox Local",
+             "-addext", "subjectAltName=" + ",".join(sans)],
+            check=True, capture_output=True, timeout=30,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return None
+    return cert, key
+
+
+def start_https_listener():
+    """Bring up the TLS twin of the HTTP server on HTTPS_PORT. Best effort:
+    any failure just leaves HTTPS_OK False and the site stays http-only."""
+    global HTTPS_OK
+    if NO_HTTPS:
+        return None
+    made = ensure_self_signed_cert()
+    if not made:
+        print("  (no HTTPS twin — `openssl` not found; phone motion controls "
+              "will need Public mode)")
+        return None
+    cert, key = made
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        srv = ThreadingHTTPServer((HOST, HTTPS_PORT), Handler)
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    except (OSError, ssl.SSLError) as exc:
+        print(f"  (no HTTPS twin on :{HTTPS_PORT} — {exc})")
+        return None
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    HTTPS_OK = True
+    print(f"  HTTPS twin ready on :{HTTPS_PORT} "
+          f"(self-signed — phones tap past the warning once)")
+    return srv
 
 
 def base_url():
@@ -297,6 +380,28 @@ def fresh_codenames():
     }
 
 
+WII_ITEMS = [
+    {"id": "playground", "name": "Cursor Playground", "emoji": "\N{DIRECT HIT}"},
+    {"id": "targets", "name": "Target Practice", "emoji": "\N{BULLSEYE}"},
+    {"id": "paint", "name": "Motion Paint", "emoji": "\N{ARTIST PALETTE}"},
+    {"id": "balance", "name": "Balance the Ball", "emoji": "\N{SOCCER BALL}"},
+    {"id": "conductor", "name": "Air Conductor", "emoji": "\N{MUSICAL NOTE}"},
+    {"id": "swat", "name": "Fly Swatter", "emoji": "\N{BUG}"},
+]
+
+
+def fresh_wii():
+    """Wii Sandbox sub-state. Pointers are pid-keyed and updated at ~20 Hz by
+    the phones; they are NOT broadcast (the host polls /state fast instead)."""
+    return {
+        "sens": 1.8,            # pointer sensitivity (higher = less tilt to reach an edge)
+        "pointers": {},          # pid -> {x,y,a,b,aSeq,bSeq,stage,last}
+        "selection": None,       # {"pid","name","item","seq"} — last menu pick
+        "selSeq": 0,
+        "items": WII_ITEMS,
+    }
+
+
 state = {
     "game": None,             # None = menu screen, else a GAMES id
     "phase": "lobby",         # tap-race phase: lobby | playing | over
@@ -307,6 +412,7 @@ state = {
     "taboo": fresh_taboo(),
     "blackbox": fresh_blackbox(),
     "codenames": fresh_codenames(),
+    "wii": fresh_wii(),
 }
 _next_pid = [1]
 
@@ -768,6 +874,34 @@ def _codenames_public(for_pid=None):
     return out
 
 
+# ------------------------------------------------------------- Wii Sandbox --
+def _wii_public(for_pid=None):
+    w = state["wii"]
+    now = time.time()
+    pointers = []
+    for pid, pt in w["pointers"].items():
+        p = state["players"].get(pid, {})
+        pointers.append({
+            "pid": pid, "name": p.get("name", "?"), "color": p.get("color", "#888"),
+            "x": pt.get("x", 0.5), "y": pt.get("y", 0.5),
+            "a": pt.get("a", False), "b": pt.get("b", False),
+            "aSeq": pt.get("aSeq", 0), "bSeq": pt.get("bSeq", 0),
+            "stage": pt.get("stage", "verify"),
+            "live": (now - pt.get("last", 0)) < 2.0,
+        })
+    out = {
+        "sens": w["sens"],
+        "items": w["items"],
+        "pointers": pointers,
+        "selection": w["selection"],
+        "playerCount": len(state["players"]),
+    }
+    if for_pid is not None:
+        pt = w["pointers"].get(for_pid)
+        out["youStage"] = pt.get("stage", "verify") if pt else "verify"
+    return out
+
+
 def public_state(for_pid=None):
     """State shaped for the clients (players as a sorted list, no timestamps).
     `for_pid` (set on a /state?pid= poll) adds that player's own private view."""
@@ -790,6 +924,7 @@ def public_state(for_pid=None):
         "taboo": _taboo_public() if state["game"] == "taboo" else None,
         "blackbox": _blackbox_public(for_pid) if state["game"] == "blackbox" else None,
         "codenames": _codenames_public(for_pid) if state["game"] == "codenames" else None,
+        "wii": _wii_public(for_pid) if state["game"] == "wii-sandbox" else None,
     }
 
 
@@ -970,6 +1105,10 @@ def do_select(game):
         keepcn = state["codenames"]
         state["codenames"] = fresh_codenames()
         state["codenames"]["mode"] = keepcn["mode"]
+
+        keepw = state["wii"]
+        state["wii"] = fresh_wii()
+        state["wii"]["sens"] = keepw["sens"]
 
         if game == "taboo":
             _taboo_autoteam()
@@ -1571,6 +1710,89 @@ def do_codenames(pid, action, data, is_host=False):
     return {"ok": False, "error": "unknown_action"}
 
 
+def do_wii(pid, action, data, is_host=False):
+    """Wii Sandbox. Caller holds _lock. wiiAim is high-frequency and does NOT
+    broadcast — the host polls /state fast to pick pointers up."""
+    w = state["wii"]
+
+    if action == "wiiSens":
+        try:
+            w["sens"] = max(0.6, min(5.0, float(data.get("value"))))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad"}
+        broadcast()
+        return {"ok": True}
+
+    if action == "wiiReset":
+        for pt in w["pointers"].values():
+            pt["stage"] = "verify"
+        w["selection"] = None
+        broadcast()
+        return {"ok": True}
+
+    if action == "wiiOpen":            # host: leave an item, back to the menu
+        w["selection"] = None
+        broadcast()
+        return {"ok": True}
+
+    if action == "wiiSelect":          # host detected an A-press over an item
+        try:
+            spid = int(data.get("pid"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad"}
+        item = data.get("item")
+        if any(it["id"] == item for it in w["items"]):
+            w["selSeq"] += 1
+            w["selection"] = {
+                "pid": spid, "name": state["players"].get(spid, {}).get("name", "?"),
+                "color": state["players"].get(spid, {}).get("color", "#888"),
+                "item": item, "seq": w["selSeq"],
+            }
+            broadcast()
+        return {"ok": True}
+
+    # ---- per-phone actions ----
+    p = state["players"].get(pid)
+    if not p:
+        return {"ok": False, "error": "not_joined"}
+    pt = w["pointers"].setdefault(pid, {
+        "x": 0.5, "y": 0.5, "a": False, "b": False,
+        "aSeq": 0, "bSeq": 0, "stage": "verify", "last": 0.0,
+    })
+    p["last_seen"] = time.time()
+    p["connected"] = True
+
+    if action == "wiiStage":
+        st = data.get("stage")
+        if st in ("verify", "calibrate", "ready"):
+            pt["stage"] = st
+            broadcast()
+        return {"ok": True}
+
+    if action == "wiiAim":
+        try:
+            pt["x"] = max(0.0, min(1.0, float(data.get("x"))))
+            pt["y"] = max(0.0, min(1.0, float(data.get("y"))))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad"}
+        pt["a"] = bool(data.get("a"))
+        pt["b"] = bool(data.get("b"))
+        pt["last"] = time.time()
+        return {"ok": True}          # deliberately no broadcast
+
+    if action == "wiiBtn":
+        btn, down = data.get("btn"), bool(data.get("down"))
+        if btn in ("a", "b"):
+            was = pt[btn]
+            pt[btn] = down
+            if down and not was:
+                pt[btn + "Seq"] = pt.get(btn + "Seq", 0) + 1
+            pt["last"] = time.time()
+        return {"ok": True}          # no broadcast — host poll catches the seq bump
+
+    return {"ok": False, "error": "unknown_action"}
+
+
 def do_input(data, is_host=False):
     pid, action = data.get("pid"), data.get("action")
     if action in HOST_ONLY and not is_host:
@@ -1603,6 +1825,9 @@ def do_input(data, is_host=False):
 
         if isinstance(action, str) and action.startswith("cn"):
             return do_codenames(pid, action, data, is_host)
+
+        if isinstance(action, str) and action.startswith("wii"):
+            return do_wii(pid, action, data, is_host)
 
         # start / reset are game-wide controls — the laptop screen or any
         # phone can trigger them, so they don't require a valid player id.
@@ -1736,6 +1961,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file("controller.html", "text/html; charset=utf-8")
         elif path == "/games":
             self._send_json({"games": GAMES})
+        elif path == "/config":
+            # public hints: the plain port, and the HTTPS twin port (if running)
+            # so a phone can hop to https for motion sensors and back again.
+            self._send_json({
+                "httpPort": PORT,
+                "httpsPort": HTTPS_PORT if HTTPS_OK else None,
+            })
         elif path == "/amihost":
             self._send_json({"host": host, "code": ROOM_CODE if host else None})
         elif path == "/phoneQR.png":
@@ -1926,6 +2158,11 @@ def _banner(tunnel_on):
     else:
         print("  LAN only.  Local host link also works:")
         print(f"      http://localhost:{PORT}/?host={HOST_TOKEN}")
+    if HTTPS_OK:
+        print(line)
+        print("  Phone motion controls (Wii Sandbox) need https — on this LAN use:")
+        print(f"      https://{lan_ip()}:{HTTPS_PORT}/play?code={ROOM_CODE}")
+        print("  (accept the one-time self-signed cert warning on the phone)")
     print(line + "\n")
 
 
@@ -1960,9 +2197,19 @@ def main():
     except (ValueError, OSError):
         pass
 
-    srv = ThreadingHTTPServer((HOST, PORT), Handler)   # binds + listens now
+    try:
+        srv = ThreadingHTTPServer((HOST, PORT), Handler)   # binds + listens now
+    except OSError as exc:
+        if exc.errno in (48, 98):   # EADDRINUSE (macOS / Linux)
+            print(f"\n  Port {PORT} is already in use — a party-game window is\n"
+                  f"  probably still open somewhere. Close that window, or run:\n\n"
+                  f"      lsof -ti tcp:{PORT} | xargs kill\n\n"
+                  f"  then start again.\n")
+            sys.exit(1)
+        raise
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     threading.Thread(target=janitor, daemon=True).start()
+    https_srv = start_https_listener()   # optional TLS twin for phone motion
 
     hold = {"tunnel": None}   # (proc, url), so cleanup always finds it
 
@@ -1972,6 +2219,8 @@ def main():
 
     def _cleanup():
         srv.shutdown()
+        if https_srv:
+            https_srv.shutdown()
         t = hold["tunnel"]
         if t:
             t[0].terminate()
