@@ -48,9 +48,17 @@ def white_text(idx):
     return WHITE[idx] if 0 <= idx < len(WHITE) else "?"
 
 
-def fill_prompt(black_text, whites):
+# sentinels for fill_prompt(mark=True): wrap the substituted answer so the
+# client can bold just that part
+MARK_A = "\x01"
+MARK_B = "\x02"
+
+
+def fill_prompt(black_text, whites, mark=False):
     """Render a black card with the chosen white card texts substituted in.
-    Extra blanks (or a card with none) get the whites appended as a list."""
+    Extra blanks (or a card with none) get the whites appended as a list.
+    With mark=True, each substituted answer is wrapped in MARK_A / MARK_B."""
+    a, b = (MARK_A, MARK_B) if mark else ("", "")
     parts = black_text.split(BLANK)
     out = parts[0]
     i = 0
@@ -59,14 +67,14 @@ def fill_prompt(black_text, whites):
         # drop the trailing period of a white card when it lands mid-sentence
         if seg.strip():
             val = val.rstrip(".")
-        out += _cap_after(val, out) + seg
+        out += a + _cap_after(val, out) + b + seg
         i += 1
     leftover = whites[i:]
     if leftover:
         out = out.rstrip()
         if not out.endswith((".", "!", "?", ":")):
             out += "."
-        out += " " + " ".join(leftover)
+        out += " " + " ".join(a + w + b for w in leftover)
     return out.strip()
 
 

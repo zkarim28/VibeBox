@@ -526,21 +526,36 @@ def _bb_award(winner_pid):
     bb["phase"] = "gameover" if bb["scores"][winner_pid] >= bb["target"] else "reveal"
 
 
+def _bb_fill_html(black_text, whites):
+    """fill_prompt as HTML-safe text with the answer(s) wrapped in <b>."""
+    raw = blackbox.fill_prompt(black_text, whites, mark=True)
+    out, esc = [], {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}
+    for ch in raw:
+        if ch == blackbox.MARK_A:
+            out.append("<b>")
+        elif ch == blackbox.MARK_B:
+            out.append("</b>")
+        else:
+            out.append(esc.get(ch, ch))
+    return "".join(out)
+
+
 def _bb_plays(reveal_names):
     """The plays on the table for the judge / reveal screens."""
     bb = state["blackbox"]
     out = []
     for slot, pid in enumerate(bb["order"]):
         face_up = reveal_names or slot < bb["flipped"]
+        whites = [blackbox.white_text(i) for i in bb["subs"].get(pid, [])]
         p = state["players"].get(pid, {})
         out.append({
             "slot": slot,
-            "cards": [blackbox.white_text(i) for i in bb["subs"].get(pid, [])] if face_up else [],
-            "filled": blackbox.fill_prompt(
-                bb["black"]["text"],
-                [blackbox.white_text(i) for i in bb["subs"].get(pid, [])]) if face_up else None,
+            "cards": whites if face_up else [],
+            "filled": blackbox.fill_prompt(bb["black"]["text"], whites) if face_up else None,
+            "filledHtml": _bb_fill_html(bb["black"]["text"], whites) if face_up else None,
             "name": p.get("name") if reveal_names else None,
             "color": p.get("color") if reveal_names else None,
+            "connected": p.get("connected", True) if reveal_names else None,
             "win": reveal_names and pid == bb["winner"],
         })
     return out
