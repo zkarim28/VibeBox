@@ -16,7 +16,7 @@
     -webkit-user-select: none; user-select: none;
     overflow-x: hidden;
   }
-  #scat *, #game *, #taboo * { min-width: 0; }
+  #scat *, #game *, #taboo *, #blackbox * { min-width: 0; }
   [hidden] { display: none !important; }
   h1 { margin-top: 1.25rem; font-size: 1.6rem; letter-spacing: -0.02em; text-align: center; }
   h1 span { color: #38bdf8; }
@@ -166,6 +166,60 @@
     background: #b45309; color: #fff; text-align: center;
     font-size: 0.85rem; font-weight: 600; padding: 0.4rem 0.75rem;
   }
+
+  /* --- BlackBox --- */
+  #blackbox { width: 100%; max-width: 520px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; }
+  .bb-top {
+    display: flex; align-items: baseline; gap: 0.6rem; padding: 0.85rem 0 0.6rem;
+    position: sticky; top: 0; background: #0b1120; z-index: 3; border-bottom: 1px solid #1e293b;
+  }
+  .bb-top .lbl { color: #94a3b8; font-size: 0.85rem; }
+  .bb-top .tmr { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 1.35rem; font-weight: 700; }
+  .bb-top .tmr.low { color: #f87171; }
+  .bb-prompt {
+    background: #05070d; border: 1px solid #253048; border-radius: 0.9rem;
+    padding: 1rem 1.1rem; font-size: 1.15rem; font-weight: 650; line-height: 1.4;
+    margin: 0.85rem 0 0.4rem;
+  }
+  .bb-prompt b { color: #38bdf8; }         /* the blank */
+  .bb-pick { color: #94a3b8; font-size: 0.85rem; margin-bottom: 0.6rem; }
+
+  .bb-hand { display: flex; flex-direction: column; gap: 0.55rem; padding-bottom: 0.5rem; }
+  .bb-card {
+    position: relative; text-align: left; background: #f8fafc; color: #0b1120;
+    border: 2px solid transparent; border-radius: 0.8rem; padding: 0.8rem 0.9rem;
+    font-size: 1.05rem; font-weight: 600; line-height: 1.3; touch-action: manipulation;
+    transition: transform 0.06s ease; overflow-wrap: anywhere; width: 100%;
+  }
+  .bb-card:active { transform: scale(0.98); }
+  .bb-card.sel { border-color: #38bdf8; }
+  .bb-card .ord {
+    position: absolute; top: -0.6rem; right: -0.6rem; width: 1.6rem; height: 1.6rem;
+    background: #38bdf8; color: #05070d; border-radius: 50%; display: grid; place-items: center;
+    font-size: 0.95rem; font-weight: 800;
+  }
+  .bb-bigbtn {
+    width: 100%; margin-top: 0.75rem; font-size: 1.1rem; font-weight: 800;
+    padding: 0.95rem 1rem; border-radius: 0.85rem; border: 0; background: #38bdf8; color: #05070d;
+  }
+  .bb-bigbtn[disabled] { filter: grayscale(0.7) brightness(0.7); }
+  .bb-bigbtn.ghost { background: #1e293b; color: #e2e8f0; font-weight: 700; }
+
+  .bb-msg { text-align: center; color: #94a3b8; margin: auto 0; padding: 2rem 0.5rem; }
+  .bb-msg .big { font-size: 1.5rem; font-weight: 800; color: #e2e8f0; margin-bottom: 0.4rem; }
+  .bb-msg .crown { font-size: 2.5rem; }
+
+  .bb-plays { display: flex; flex-direction: column; gap: 0.55rem; }
+  .bb-play {
+    text-align: left; background: #111827; border: 2px solid #253048; border-radius: 0.8rem;
+    padding: 0.8rem 0.9rem; font-size: 1rem; line-height: 1.35; color: #e2e8f0;
+  }
+  .bb-play.face { background: #f8fafc; color: #0b1120; font-weight: 600; }
+  .bb-play.mine { border-color: #38bdf8; }
+  .bb-play.win { border-color: #4ade80; background: #14532d; color: #fff; }
+  .bb-play .who { display: block; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.2rem; }
+  .bb-scores { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; margin-top: 1rem; }
+  .bb-chip { background: #1e293b; border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.9rem; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -274,6 +328,77 @@
     <div id="tb-cover" class="tb-msg" hidden>
       <div class="big" id="tb-cover-t">Team 1 wins!</div>
       <p id="tb-cover-s"></p>
+    </div>
+  </div>
+
+  <!-- ===== BLACKBOX ===== -->
+  <div id="blackbox" hidden>
+    <div class="bb-top" id="bb-top" hidden>
+      <span class="lbl" id="bb-round">Round 1</span>
+      <span class="tmr" id="bb-tmr" hidden>1:00</span>
+    </div>
+    <div class="bb-prompt" id="bb-prompt" hidden></div>
+    <div class="bb-pick" id="bb-pick" hidden></div>
+
+    <!-- non-czar: pick cards -->
+    <div id="bb-choose" hidden>
+      <div class="bb-hand" id="bb-hand"></div>
+      <button class="bb-bigbtn" id="bb-play" type="button" disabled>Play card</button>
+    </div>
+
+    <!-- submitted, waiting -->
+    <div id="bb-sent" class="bb-msg" hidden>
+      <div class="crown">✅</div>
+      <div class="big">Card sent</div>
+      <p id="bb-sent-sub">Waiting for the other players…</p>
+      <div class="bb-plays" id="bb-sent-cards" style="margin-top:1rem"></div>
+      <button class="bb-bigbtn ghost" id="bb-unplay" type="button" style="margin-top:1rem">Take it back</button>
+    </div>
+
+    <!-- czar during select -->
+    <div id="bb-czar-wait" class="bb-msg" hidden>
+      <div class="crown">👑</div>
+      <div class="big">You're the Card Czar</div>
+      <p id="bb-czar-wait-sub">Waiting for everyone to play…</p>
+    </div>
+
+    <!-- czar during judge -->
+    <div id="bb-judge" hidden>
+      <p class="bb-pick" id="bb-judge-hint">Reveal each card, then pick your favourite.</p>
+      <div class="bb-plays" id="bb-judge-list"></div>
+      <button class="bb-bigbtn" id="bb-flip" type="button">Reveal next card</button>
+    </div>
+
+    <!-- non-czar during judge -->
+    <div id="bb-watch" class="bb-msg" hidden>
+      <div class="crown">👑</div>
+      <div class="big" id="bb-watch-t">The Czar is choosing…</div>
+      <div class="bb-plays" id="bb-watch-list" style="margin-top:1rem"></div>
+    </div>
+
+    <!-- reveal -->
+    <div id="bb-reveal" class="bb-msg" hidden>
+      <div class="crown">🏆</div>
+      <div class="big" id="bb-reveal-t">Alice wins the round</div>
+      <div class="bb-play face win" id="bb-reveal-card" style="margin:0.75rem 0"></div>
+      <div class="bb-scores" id="bb-reveal-scores"></div>
+      <button class="bb-bigbtn" id="bb-next" type="button" style="margin-top:1.25rem" hidden>Next round →</button>
+      <p id="bb-reveal-wait" style="margin-top:1rem">Waiting for the Czar…</p>
+    </div>
+
+    <!-- game over -->
+    <div id="bb-over" class="bb-msg" hidden>
+      <div class="crown">🎉</div>
+      <div class="big" id="bb-over-t">Bob wins!</div>
+      <div class="bb-scores" id="bb-over-scores"></div>
+      <p style="margin-top:1rem">Waiting for the host…</p>
+    </div>
+
+    <!-- lobby -->
+    <div id="bb-lobby" class="bb-msg" hidden>
+      <div class="crown">📦</div>
+      <div class="big">BlackBox</div>
+      <p id="bb-lobby-sub">Waiting for the host to start…</p>
     </div>
   </div>
 
@@ -390,7 +515,8 @@ function setView(game) {
   $("game").classList.toggle("on", game === "tap-race");
   $("scat").hidden = game !== "scattergories";
   $("taboo").hidden = game !== "taboo";
-  $("waiting").hidden = ["tap-race", "scattergories", "taboo"].includes(game);
+  $("blackbox").hidden = game !== "blackbox";
+  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox"].includes(game);
 }
 
 // ---- sending input ----
@@ -728,6 +854,175 @@ function renderTaboo(s) {
   }
 }
 
+// ================= BLACKBOX =================
+let bbSel = [];              // hand indices the player has chosen, in order
+let bbPhase = null, bbRound = -1, bbEndsAt = 0, bbSubmitted = false;
+
+function bbBlank(text) {
+  return esc(text).replace(/_____/g, "<b>_____</b>");
+}
+function bbScoresHtml(players) {
+  return players.map(p =>
+    `<span class="bb-chip" style="color:${p.color}">${esc(p.name)} ${p.score}${p.czar ? " 👑" : ""}</span>`
+  ).join("");
+}
+
+const BB_SECTIONS = ["bb-choose", "bb-sent", "bb-czar-wait", "bb-judge", "bb-watch", "bb-reveal", "bb-over", "bb-lobby"];
+
+function renderBlackbox(s) {
+  const b = s.blackbox; if (!b) return;
+  clockOffset = b.serverNow * 1000 - Date.now();
+  const fresh = b.phase !== bbPhase || b.round !== bbRound;
+  bbPhase = b.phase; bbRound = b.round; bbEndsAt = b.endsAt || 0;
+  const iAmCzar = b.czar === pid;
+
+  BB_SECTIONS.forEach(id => { $(id).hidden = true; });
+  const showChrome = b.phase !== "lobby" && b.phase !== "gameover";
+  $("bb-top").hidden = !showChrome;
+  $("bb-prompt").hidden = !showChrome || !b.black;
+  $("bb-pick").hidden = !(showChrome && b.black && !iAmCzar && b.phase === "select");
+
+  if (b.black) {
+    $("bb-prompt").innerHTML = bbBlank(b.black.text);
+    const n = b.black.pick;
+    $("bb-pick").textContent = n === 1 ? "Pick 1 card" : `Pick ${n} cards — tap in the order you want them read`;
+  }
+  $("bb-round").textContent = "Round " + b.round + " · first to " + b.target;
+  bbTick();
+
+  if (b.phase === "lobby") {
+    $("bb-lobby").hidden = false;
+    $("bb-lobby-sub").textContent = b.playerCount < 3
+      ? `Need 3 players to start (${b.playerCount} so far).`
+      : "Waiting for the host to start…";
+    return;
+  }
+  if (b.phase === "gameover") {
+    $("bb-over").hidden = false;
+    $("bb-over-t").textContent = b.champPid === pid ? "🎉 You win BlackBox!" : (b.champName || "Someone") + " wins BlackBox!";
+    $("bb-over-scores").innerHTML = bbScoresHtml(b.players);
+    return;
+  }
+
+  if (b.phase === "select") {
+    if (iAmCzar) {
+      $("bb-czar-wait").hidden = false;
+      $("bb-czar-wait-sub").textContent = `Waiting for everyone to play… (${b.submitted}/${b.needed})`;
+      return;
+    }
+    const mine = b.mySub || null;
+    if (mine) {
+      bbSubmitted = true;
+      $("bb-sent").hidden = false;
+      $("bb-sent-sub").textContent = `Waiting for the other players… (${b.submitted}/${b.needed})`;
+      $("bb-sent-cards").innerHTML = mine.map(t => `<div class="bb-play face">${esc(t)}</div>`).join("");
+      return;
+    }
+    bbSubmitted = false;
+    $("bb-choose").hidden = false;
+    if (fresh) bbSel = [];
+    bbRenderHand(b);
+    return;
+  }
+
+  if (b.phase === "judge") {
+    if (iAmCzar) {
+      $("bb-judge").hidden = false;
+      const done = b.flipped >= b.playCount;
+      $("bb-flip").hidden = done;
+      $("bb-judge-hint").textContent = done
+        ? "Tap the card that wins the round."
+        : `Reveal each card (${b.flipped}/${b.playCount}), then pick the winner.`;
+      $("bb-judge-list").innerHTML = (b.plays || []).map(pl => {
+        const face = pl.cards.length;
+        const txt = face ? esc(pl.filled) : "· · ·";
+        return `<button class="bb-play ${face ? "face" : ""}" data-slot="${pl.slot}" ${done && face ? "" : "disabled"}>${txt}</button>`;
+      }).join("");
+      $("bb-judge-list").querySelectorAll("[data-slot]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const slot = +btn.dataset.slot;
+          if (confirm("Pick this card as the winner?")) send("blackboxPick", { choice: slot });
+        });
+      });
+    } else {
+      $("bb-watch").hidden = false;
+      $("bb-watch-t").textContent = "👑 " + (bbCzarName(b) || "The Czar") + " is choosing…";
+      $("bb-watch-list").innerHTML = (b.plays || []).map(pl => {
+        const face = pl.cards.length;
+        const isMine = b.mySub && face && JSON.stringify(pl.cards) === JSON.stringify(b.mySub);
+        return `<div class="bb-play ${face ? "face" : ""} ${isMine ? "mine" : ""}">${face ? esc(pl.filled) : "· · ·"}</div>`;
+      }).join("");
+    }
+    return;
+  }
+
+  if (b.phase === "reveal") {
+    $("bb-reveal").hidden = false;
+    const iWon = b.winnerPid === pid;
+    $("bb-reveal-t").textContent = iWon ? "🏆 You win the round!" : (b.winnerName || "Someone") + " wins the round";
+    const win = (b.plays || []).find(p => p.win);
+    $("bb-reveal-card").textContent = win ? win.filled : "";
+    $("bb-reveal-scores").innerHTML = bbScoresHtml(b.players);
+    const canAdvance = iAmCzar;
+    $("bb-next").hidden = !canAdvance;
+    $("bb-reveal-wait").hidden = canAdvance;
+    return;
+  }
+}
+
+function bbCzarName(b) {
+  const c = (b.players || []).find(p => p.czar);
+  return c && c.name;
+}
+
+function bbRenderHand(b) {
+  const pick = b.black ? b.black.pick : 1;
+  $("bb-hand").innerHTML = (b.hand || []).map(c => {
+    const at = bbSel.indexOf(c.i);
+    const ord = at >= 0 ? `<span class="ord">${pick > 1 ? at + 1 : "✓"}</span>` : "";
+    return `<button class="bb-card ${at >= 0 ? "sel" : ""}" data-i="${c.i}">${esc(c.text)}${ord}</button>`;
+  }).join("");
+  $("bb-hand").querySelectorAll("[data-i]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = +btn.dataset.i;
+      const at = bbSel.indexOf(i);
+      if (at >= 0) bbSel.splice(at, 1);
+      else if (bbSel.length < pick) bbSel.push(i);
+      else if (pick === 1) bbSel = [i];
+      bbRenderHand(b);
+    });
+  });
+  const ready = bbSel.length === pick;
+  const btn = $("bb-play");
+  btn.disabled = !ready;
+  btn.textContent = ready ? (pick > 1 ? "Play these cards" : "Play card") : `Pick ${pick - bbSel.length} more`;
+}
+
+$("bb-play").addEventListener("click", () => {
+  if (bbSel.length && !bbSubmitted) {
+    send("blackboxPlay", { cards: bbSel.slice() });
+    bbSubmitted = true;
+  }
+});
+$("bb-unplay").addEventListener("click", () => { bbSel = []; bbSubmitted = false; send("blackboxUnplay"); });
+$("bb-flip").addEventListener("click", () => send("blackboxFlip"));
+$("bb-next").addEventListener("click", () => send("blackboxNext"));
+
+let bbRAF = null;
+function bbTick() {
+  if (bbRAF) cancelAnimationFrame(bbRAF);
+  const loop = () => {
+    const show = bbPhase === "select" && bbEndsAt;
+    $("bb-tmr").hidden = !show;
+    if (!show) return;
+    const remain = (bbEndsAt * 1000 - (Date.now() + clockOffset)) / 1000;
+    $("bb-tmr").textContent = fmt(remain);
+    $("bb-tmr").classList.toggle("low", remain <= 10);
+    bbRAF = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
 // ---- keep-alive + polling ----
 let loopsOn = false;
 function startLoops() {
@@ -774,6 +1069,8 @@ async function pollState() {
       renderScat(s);
     } else if (s.game === "taboo") {
       renderTaboo(s);
+    } else if (s.game === "blackbox") {
+      renderBlackbox(s);
     }
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -783,6 +1080,7 @@ async function pollState() {
 function s_poll_delay() {
   if (currentGame === "scattergories" && scPhase === "review") return 700;
   if (currentGame === "taboo" && (tbPhase === "turn" || tbPhase === "ready")) return 350;
+  if (currentGame === "blackbox" && bbPhase === "judge") return 350;
   return 500;
 }
 </script>

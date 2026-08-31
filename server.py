@@ -12,6 +12,7 @@ import http.cookies
 import json
 import os
 import queue
+import random
 import re
 import secrets
 import shutil
@@ -26,6 +27,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+import blackbox       # local, BlackBox (CAH-style) card decks
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
 import taboo          # local, Taboo card deck
@@ -72,6 +74,7 @@ HOST_ONLY = {
     "scatStart", "scatSet", "scatEndRound", "scatNext", "scatLobby", "scatResetScores",
     "tabooStart", "tabooSet", "tabooBeginTurn", "tabooEndTurn", "tabooNextTurn",
     "tabooEndGame", "tabooNewGame",
+    "blackboxStart", "blackboxSet", "blackboxNewGame", "blackboxEndGame",
 }
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
@@ -100,6 +103,14 @@ GAMES = [
         "players": "2 teams · 1 phone each",
         "status": "ready",
         "emoji": "\N{ZIPPER-MOUTH FACE}",
+    },
+    {
+        "id": "blackbox",
+        "name": "BlackBox",
+        "tagline": "Fill in the blank with your funniest card. The Card Czar picks the winner.",
+        "players": "3-8 players",
+        "status": "ready",
+        "emoji": "\N{BLACK LARGE SQUARE}",
     },
     {
         "id": "doodle-dash",
@@ -234,6 +245,28 @@ def fresh_taboo():
     }
 
 
+def fresh_blackbox():
+    """A BlackBox sub-state in its lobby form. pid-keyed dicts use int keys
+    (JSON stringifies them on the way out)."""
+    return {
+        "phase": "lobby",       # lobby | select | judge | reveal | gameover
+        "target": 5,            # black cards needed to win
+        "selectSeconds": 60,
+        "scores": {},           # pid -> points
+        "czar": None,           # pid of this round's Card Czar
+        "round": 0,
+        "black": None,          # {"text", "pick", "draw"}
+        "whiteDeck": [], "whitePos": 0,
+        "blackDeck": [], "blackPos": 0,
+        "hands": {},             # pid -> [whiteIdx, ...]  (private, 7 cards)
+        "subs": {},              # pid -> [whiteIdx, ...]  (ordered, hidden play)
+        "order": [],             # judging order: shuffled list of pids
+        "flipped": 0,            # how many plays the czar has turned over
+        "winner": None,          # pid who won the round (reveal phase)
+        "endsAt": None,          # selection deadline (epoch seconds)
+    }
+
+
 state = {
     "game": None,             # None = menu screen, else a GAMES id
     "phase": "lobby",         # tap-race phase: lobby | playing | over
@@ -242,6 +275,7 @@ state = {
     "players": {},            # pid -> {name, color, taps, score, team, last_seen}
     "scat": fresh_scat(),
     "taboo": fresh_taboo(),
+    "blackbox": fresh_blackbox(),
 }
 _next_pid = [1]
 
@@ -378,9 +412,194 @@ def _taboo_public():
     return out
 
 
+# ------------------------------------------------------------------- BlackBox --
+def _bb_ingame_pids():
+    """Players in the current BlackBox game, in table (join) order."""
+    return sorted(state["blackbox"]["scores"].keys())
+
+
+def _bb_non_czar_pids():
+    bb = state["blackbox"]
+    return [p for p in _bb_ingame_pids() if p != bb["czar"]]
+
+
+def _bb_draw_white(n):
+    bb = state["blackbox"]
+    out = []
+    for _ in range(n):
+        if bb["whitePos"] >= len(bb["whiteDeck"]):
+            bb["whiteDeck"] = blackbox.shuffled_white_deck()
+            bb["whitePos"] = 0
+        out.append(bb["whiteDeck"][bb["whitePos"]])
+        bb["whitePos"] += 1
+    return out
+
+
+def _bb_draw_black():
+    bb = state["blackbox"]
+    if bb["blackPos"] >= len(bb["blackDeck"]):
+        bb["blackDeck"] = blackbox.shuffled_black_deck()
+        bb["blackPos"] = 0
+    idx = bb["blackDeck"][bb["blackPos"]]
+    bb["blackPos"] += 1
+    return dict(blackbox.BLACK[idx])
+
+
+def _bb_ensure_player(pid):
+    """Give a mid-game joiner a score slot and a fresh hand."""
+    bb = state["blackbox"]
+    if pid not in bb["scores"]:
+        bb["scores"][pid] = 0
+    if pid not in bb["hands"]:
+        bb["hands"][pid] = _bb_draw_white(blackbox.HAND_SIZE)
+
+
+def _bb_refill_hands():
+    bb = state["blackbox"]
+    for hand in bb["hands"].values():
+        if len(hand) < blackbox.HAND_SIZE:
+            hand.extend(_bb_draw_white(blackbox.HAND_SIZE - len(hand)))
+        del hand[blackbox.HAND_SIZE:]      # trim any leftover "draw N" extras
+
+
+def _bb_next_czar():
+    bb = state["blackbox"]
+    pids = _bb_ingame_pids()
+    if not pids:
+        return None
+    if bb["czar"] not in pids:
+        return pids[bb["round"] % len(pids)]
+    return pids[(pids.index(bb["czar"]) + 1) % len(pids)]
+
+
+def _bb_begin_round():
+    bb = state["blackbox"]
+    for pid in list(state["players"]):      # pull in anyone who joined
+        _bb_ensure_player(pid)
+    bb["round"] += 1
+    bb["czar"] = _bb_next_czar()
+    bb["black"] = _bb_draw_black()
+    bb["subs"] = {}
+    bb["order"] = []
+    bb["flipped"] = 0
+    bb["winner"] = None
+    extra = bb["black"].get("draw", 0)
+    if extra:
+        for pid, hand in bb["hands"].items():
+            if pid != bb["czar"]:
+                hand.extend(_bb_draw_white(extra))
+    bb["phase"] = "select"
+    bb["endsAt"] = time.time() + bb["selectSeconds"]
+
+
+def _bb_all_submitted():
+    bb = state["blackbox"]
+    need = [p for p in _bb_non_czar_pids()
+            if state["players"].get(p, {}).get("connected", True)]
+    return bool(need) and all(p in bb["subs"] for p in need)
+
+
+def _bb_to_judge():
+    """Move from selection to judging. False if there's nothing to judge."""
+    bb = state["blackbox"]
+    if len(bb["subs"]) < 1:
+        return False
+    order = list(bb["subs"].keys())
+    random.shuffle(order)
+    bb["order"] = order
+    bb["flipped"] = 0
+    bb["phase"] = "judge"
+    bb["endsAt"] = None
+    return True
+
+
+def _bb_award(winner_pid):
+    bb = state["blackbox"]
+    bb["winner"] = winner_pid
+    bb["scores"][winner_pid] = bb["scores"].get(winner_pid, 0) + 1
+    for pid, cards in bb["subs"].items():
+        hand = bb["hands"].get(pid, [])
+        for c in cards:
+            if c in hand:
+                hand.remove(c)
+    _bb_refill_hands()
+    bb["phase"] = "gameover" if bb["scores"][winner_pid] >= bb["target"] else "reveal"
+
+
+def _bb_plays(reveal_names):
+    """The plays on the table for the judge / reveal screens."""
+    bb = state["blackbox"]
+    out = []
+    for slot, pid in enumerate(bb["order"]):
+        face_up = reveal_names or slot < bb["flipped"]
+        p = state["players"].get(pid, {})
+        out.append({
+            "slot": slot,
+            "cards": [blackbox.white_text(i) for i in bb["subs"].get(pid, [])] if face_up else [],
+            "filled": blackbox.fill_prompt(
+                bb["black"]["text"],
+                [blackbox.white_text(i) for i in bb["subs"].get(pid, [])]) if face_up else None,
+            "name": p.get("name") if reveal_names else None,
+            "color": p.get("color") if reveal_names else None,
+            "win": reveal_names and pid == bb["winner"],
+        })
+    return out
+
+
+def _blackbox_public(for_pid=None):
+    bb = state["blackbox"]
+    order = _bb_ingame_pids()
+    roster = [{"pid": p, "name": state["players"].get(p, {}).get("name", "?"),
+               "color": state["players"].get(p, {}).get("color", "#888"),
+               "score": bb["scores"].get(p, 0),
+               "connected": state["players"].get(p, {}).get("connected", True),
+               "czar": p == bb["czar"]}
+              for p in order]
+    out = {
+        "phase": bb["phase"],
+        "target": bb["target"],
+        "selectSeconds": bb["selectSeconds"],
+        "round": bb["round"],
+        "czar": bb["czar"],
+        "players": roster,
+        "playerCount": len(state["players"]),
+        "black": bb["black"],
+        "serverNow": time.time(),
+        "endsAt": bb["endsAt"],
+    }
+    if bb["phase"] == "select":
+        need = [p for p in _bb_non_czar_pids()
+                if state["players"].get(p, {}).get("connected", True)]
+        out["needed"] = len(need)
+        out["submitted"] = sum(1 for p in need if p in bb["subs"])
+        out["submittedPids"] = [p for p in bb["subs"]]
+    if bb["phase"] == "judge":
+        out["plays"] = _bb_plays(reveal_names=False)
+        out["flipped"] = bb["flipped"]
+        out["playCount"] = len(bb["order"])
+    if bb["phase"] in ("reveal", "gameover"):
+        out["plays"] = _bb_plays(reveal_names=True)
+        out["winnerPid"] = bb["winner"]
+        w = state["players"].get(bb["winner"], {})
+        out["winnerName"] = w.get("name")
+    if bb["phase"] == "gameover":
+        top = max(bb["scores"].items(), key=lambda kv: kv[1], default=(None, 0))
+        out["champPid"] = top[0]
+        out["champName"] = state["players"].get(top[0], {}).get("name")
+    # this phone's private view: its hand + what it has played
+    if for_pid is not None and for_pid in bb["hands"]:
+        out["hand"] = [{"i": slot, "text": blackbox.white_text(idx)}
+                       for slot, idx in enumerate(bb["hands"][for_pid])]
+        if for_pid in bb["subs"]:
+            played = bb["subs"][for_pid]
+            out["mySub"] = [blackbox.white_text(i) for i in played]
+        out["isCzar"] = for_pid == bb["czar"]
+    return out
+
+
 def public_state(for_pid=None):
     """State shaped for the clients (players as a sorted list, no timestamps).
-    `for_pid` (set on a /state?pid= poll) adds that player's own scat answers."""
+    `for_pid` (set on a /state?pid= poll) adds that player's own private view."""
     players = [
         {"pid": pid, "name": p["name"], "color": p["color"],
          "taps": p["taps"], "score": p["score"], "team": p.get("team"),
@@ -398,6 +617,7 @@ def public_state(for_pid=None):
         "players": players,
         "scat": _scat_public(for_pid) if state["game"] == "scattergories" else None,
         "taboo": _taboo_public() if state["game"] == "taboo" else None,
+        "blackbox": _blackbox_public(for_pid) if state["game"] == "blackbox" else None,
     }
 
 
@@ -478,6 +698,16 @@ def janitor():
                 tb["phase"] = "turnend"
                 tb["card"] = None
                 changed = True
+
+            # BlackBox: selection time is up -> judge with whatever's in, or
+            # (nothing played) redeal the round.
+            bb = state["blackbox"]
+            if (state["game"] == "blackbox" and bb["phase"] == "select"
+                    and bb["endsAt"] and time.time() >= bb["endsAt"]):
+                if not _bb_to_judge():
+                    _bb_begin_round()
+                changed = True
+
             if reap_players():
                 changed = True
             if changed:
@@ -508,6 +738,8 @@ def do_join(name, code, ip):
             "name": name, "color": color, "taps": 0, "score": 0, "team": team,
             "last_seen": time.time(), "token": token, "connected": True,
         }
+        if state["game"] == "blackbox" and state["blackbox"]["phase"] != "lobby":
+            _bb_ensure_player(pid)      # deal a mid-game arrival straight in
         broadcast()
         return {"pid": pid, "token": token, "color": color, "goal": state["goal"]}
 
@@ -553,6 +785,12 @@ def do_select(game):
         state["taboo"]["turnSeconds"] = keptb["turnSeconds"]
         state["taboo"]["buzzScoresPoint"] = keptb["buzzScoresPoint"]
         state["taboo"]["teamNames"] = keptb["teamNames"]
+
+        keepbb = state["blackbox"]
+        state["blackbox"] = fresh_blackbox()
+        state["blackbox"]["target"] = keepbb["target"]
+        state["blackbox"]["selectSeconds"] = keepbb["selectSeconds"]
+
         if game == "taboo":
             _taboo_autoteam()
         else:
@@ -855,6 +1093,127 @@ def do_taboo(pid, action, data):
     return {"ok": False, "error": "unknown_action"}
 
 
+def do_blackbox(pid, action, data, is_host=False):
+    """Handle a blackbox* action. Caller holds _lock."""
+    bb = state["blackbox"]
+
+    if action == "blackboxSet":
+        key, value = data.get("key"), data.get("value")
+        try:
+            if key == "target":
+                bb["target"] = min(15, max(3, int(value)))
+            elif key == "selectSeconds":
+                bb["selectSeconds"] = min(180, max(20, int(value)))
+            else:
+                return {"ok": False, "error": "bad_key"}
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_value"}
+        broadcast()
+        return {"ok": True}
+
+    if action == "blackboxStart":
+        if bb["phase"] not in ("lobby", "gameover"):
+            return {"ok": True}
+        pids = sorted(state["players"])
+        if len(pids) < 3:
+            return {"ok": False, "error": "need_3"}
+        bb["scores"] = {p: 0 for p in pids}
+        bb["hands"] = {}
+        bb["whiteDeck"] = blackbox.shuffled_white_deck()
+        bb["whitePos"] = 0
+        bb["blackDeck"] = blackbox.shuffled_black_deck()
+        bb["blackPos"] = 0
+        for p in pids:
+            bb["hands"][p] = _bb_draw_white(blackbox.HAND_SIZE)
+        bb["czar"] = None
+        bb["round"] = 0
+        _bb_begin_round()
+        broadcast()
+        return {"ok": True}
+
+    if action == "blackboxNewGame":
+        if bb["phase"] == "gameover":
+            bb["phase"] = "lobby"
+            broadcast()
+        return {"ok": True}
+
+    if action == "blackboxEndGame":
+        if bb["phase"] in ("select", "judge", "reveal"):
+            bb["phase"] = "gameover"
+            broadcast()
+        return {"ok": True}
+
+    # round-flow actions: the Card Czar drives them (host may step in too)
+    may_run = is_host or pid == bb["czar"]
+
+    if action == "blackboxNext":
+        if bb["phase"] == "reveal" and may_run:
+            _bb_begin_round()
+            broadcast()
+        return {"ok": True}
+
+    if action == "blackboxSkip":
+        if bb["phase"] in ("select", "judge") and may_run:
+            _bb_begin_round()
+            broadcast()
+        return {"ok": True}
+
+    if action == "blackboxFlip":
+        if bb["phase"] == "judge" and may_run:
+            bb["flipped"] = min(bb["flipped"] + 1, len(bb["order"]))
+            broadcast()
+        return {"ok": True}
+
+    if action == "blackboxPick":
+        if bb["phase"] != "judge" or not may_run:
+            return {"ok": False, "error": "not_czar"}
+        try:
+            slot = int(data.get("choice"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_choice"}
+        if not (0 <= slot < len(bb["order"])):
+            return {"ok": False, "error": "bad_choice"}
+        _bb_award(bb["order"][slot])
+        broadcast()
+        return {"ok": True}
+
+    # -- remaining actions need a real player --
+    p = state["players"].get(pid)
+    if not p:
+        return {"ok": False, "error": "not_joined"}
+    p["last_seen"] = time.time()
+    p["connected"] = True
+    _bb_ensure_player(pid)
+
+    if action == "blackboxPlay":
+        if bb["phase"] != "select" or pid == bb["czar"]:
+            return {"ok": False, "error": "cant_play"}
+        want = (bb["black"] or {}).get("pick", 1)
+        raw = data.get("cards")
+        if not isinstance(raw, list) or len(raw) != want:
+            return {"ok": False, "error": "bad_count"}
+        hand = bb["hands"].get(pid, [])
+        try:
+            idxs = [int(x) for x in raw]
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_cards"}
+        if len(set(idxs)) != len(idxs) or any(not (0 <= i < len(hand)) for i in idxs):
+            return {"ok": False, "error": "bad_cards"}
+        bb["subs"][pid] = [hand[i] for i in idxs]
+        if _bb_all_submitted():
+            _bb_to_judge()
+        broadcast()
+        return {"ok": True}
+
+    if action == "blackboxUnplay":
+        if bb["phase"] == "select" and pid in bb["subs"]:
+            del bb["subs"][pid]
+            broadcast()
+        return {"ok": True}
+
+    return {"ok": False, "error": "unknown_action"}
+
+
 def do_input(data, is_host=False):
     pid, action = data.get("pid"), data.get("action")
     if action in HOST_ONLY and not is_host:
@@ -881,6 +1240,9 @@ def do_input(data, is_host=False):
 
         if isinstance(action, str) and action.startswith("taboo"):
             return do_taboo(pid, action, data)
+
+        if isinstance(action, str) and action.startswith("blackbox"):
+            return do_blackbox(pid, action, data, is_host)
 
         # start / reset are game-wide controls — the laptop screen or any
         # phone can trigger them, so they don't require a valid player id.
