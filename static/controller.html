@@ -443,6 +443,27 @@ function paintTap(s) {
 let scPhase = null, scEndsAt = 0, clockOffset = 0, scCats = [], scLetter = null;
 let scDirty = false, scSendTimer = null;
 
+// Local draft of the answer sheet, so a disconnect / reload / phone-lock mid-
+// round never costs you what you typed. Keyed by room + letter; the server also
+// echoes back your saved answers (sc.mine) as a second safety net.
+// key includes the round's end time so a new round never picks up an old draft
+function scDraftKey() { return "pgd:" + ROOM + ":" + (scLetter || "?") + ":" + (scEndsAt || 0); }
+function scReadForm() {
+  const a = {};
+  $("sc-form").querySelectorAll("input").forEach(inp => { a[inp.dataset.i] = inp.value; });
+  return a;
+}
+function scSaveDraft() { try { localStorage.setItem(scDraftKey(), JSON.stringify(scReadForm())); } catch (e) {} }
+function scLoadDraft() { try { return JSON.parse(localStorage.getItem(scDraftKey()) || "null"); } catch (e) { return null; } }
+function scClearDrafts() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("pgd:")) localStorage.removeItem(k);
+    }
+  } catch (e) {}
+}
+
 function scBuildForm(cats, letter) {
   $("sc-form").innerHTML = cats.map((c, i) => `
     <div class="sc-field">
@@ -452,10 +473,24 @@ function scBuildForm(cats, letter) {
              autocapitalize="none" autocomplete="off" spellcheck="false" enterkeyhint="next">
     </div>`).join("");
   $("sc-form").querySelectorAll("input").forEach(inp => {
-    inp.addEventListener("input", () => { scDirty = true; scScheduleSend(); });
+    inp.addEventListener("input", () => { scDirty = true; scSaveDraft(); scScheduleSend(); });
     inp.addEventListener("blur", scSendAnswers);
   });
 }
+
+// fill a freshly-built form from whatever we already have: this phone's local
+// draft wins (it's the freshest), otherwise the server's copy of our answers.
+function scPrefill(serverCells) {
+  const src = scLoadDraft() || serverCells || null;
+  if (!src) return;
+  let any = false;
+  $("sc-form").querySelectorAll("input").forEach(inp => {
+    const v = src[inp.dataset.i];
+    if (v) { inp.value = v; any = true; }
+  });
+  if (any) { scDirty = true; scScheduleSend(); }   // make sure the server has it
+}
+
 function scScheduleSend() {
   if (scSendTimer) return;
   scSendTimer = setTimeout(() => { scSendTimer = null; scSendAnswers(); }, 350);
@@ -463,11 +498,17 @@ function scScheduleSend() {
 function scSendAnswers() {
   if (!scDirty || scPhase !== "playing") return;
   scDirty = false;
-  const answers = {};
-  $("sc-form").querySelectorAll("input").forEach(inp => { answers[inp.dataset.i] = inp.value; });
-  send("scatAnswers", { answers });
+  send("scatAnswers", { answers: scReadForm() });
 }
-window.addEventListener("visibilitychange", () => { if (document.hidden) scSendAnswers(); });
+// on the way out (phone lock, tab switch, page close) flush with a beacon,
+// which survives the page being frozen where a normal fetch wouldn't
+function scFlushBeacon() {
+  if (scPhase !== "playing" || !pid || !navigator.sendBeacon) return;
+  scSaveDraft();
+  navigator.sendBeacon("/input", JSON.stringify(
+    { pid, action: "scatAnswers", answers: scReadForm() }));
+}
+window.addEventListener("visibilitychange", () => { if (document.hidden) scFlushBeacon(); });
 
 function fmt(sec) {
   sec = Math.max(0, Math.ceil(sec));
@@ -511,8 +552,11 @@ function renderScat(s) {
       scCats = sc.categories.slice();
       scLetter = sc.letter;
       scBuildForm(scCats, scLetter);
+      scPrefill(sc.mine);   // restore anything typed before a reload / drop
     }
     scTick();
+  } else if (prevPhase === "playing") {
+    scClearDrafts();   // round's over — the local backup has done its job
   }
 
   if (sc.phase === "review") {
@@ -697,7 +741,9 @@ function startLoops() {
 // e.persisted means the page is only being frozen (phone lock / tab switch),
 // so the player is expected back and we leave them in.
 window.addEventListener("pagehide", (e) => {
-  if (e.persisted || !pid || !navigator.sendBeacon) return;
+  if (!pid || !navigator.sendBeacon) return;
+  scFlushBeacon();                       // save the answer sheet either way
+  if (e.persisted) return;               // just frozen — player's coming back
   navigator.sendBeacon("/input", JSON.stringify({ pid, action: "leave" }));
 });
 

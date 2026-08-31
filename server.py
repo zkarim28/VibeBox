@@ -246,7 +246,7 @@ state = {
 _next_pid = [1]
 
 
-def _scat_public():
+def _scat_public(for_pid=None):
     scat = state["scat"]
     present = state["players"]
     out = {
@@ -264,6 +264,12 @@ def _scat_public():
             if any(v.strip() for v in e["cells"].values())
         ),
     }
+
+    # hand a reconnecting phone back its own in-progress answers so a mid-round
+    # disconnect (or a reload) doesn't wipe what it already typed
+    if scat["phase"] == "playing" and for_pid is not None:
+        e = scat["entries"].get(for_pid)
+        out["mine"] = dict(e["cells"]) if e else {}
 
     if scat["phase"] in ("review", "done"):
         out["reviewIndex"] = scat["reviewIndex"]
@@ -372,8 +378,9 @@ def _taboo_public():
     return out
 
 
-def public_state():
-    """State shaped for the clients (players as a sorted list, no timestamps)."""
+def public_state(for_pid=None):
+    """State shaped for the clients (players as a sorted list, no timestamps).
+    `for_pid` (set on a /state?pid= poll) adds that player's own scat answers."""
     players = [
         {"pid": pid, "name": p["name"], "color": p["color"],
          "taps": p["taps"], "score": p["score"], "team": p.get("team"),
@@ -389,7 +396,7 @@ def public_state():
         "winner": winner,
         "winnerPid": state["winner"],
         "players": players,
-        "scat": _scat_public() if state["game"] == "scattergories" else None,
+        "scat": _scat_public(for_pid) if state["game"] == "scattergories" else None,
         "taboo": _taboo_public() if state["game"] == "taboo" else None,
     }
 
@@ -1033,7 +1040,11 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if pid is not None and touch_player(pid):
                     broadcast()         # this phone just came back from "reconnecting"
-                self._send_json(public_state())
+                try:
+                    mine = int(pid) if pid is not None else None
+                except (TypeError, ValueError):
+                    mine = None
+                self._send_json(public_state(mine))
         elif path == "/events":
             if not host:
                 self.send_error(403); return
