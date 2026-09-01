@@ -30,6 +30,7 @@ from urllib.parse import urlparse, parse_qs
 
 import blackbox       # local, BlackBox (CAH-style) card decks
 import codenames      # local, Codenames word list + board dealer
+import notify         # local, emails/texts the owner when a public link opens
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
 import taboo          # local, Taboo card deck
@@ -74,6 +75,11 @@ ROOM_CODE = (os.environ.get("ROOM_CODE", "").strip().upper()
 # Secret that unlocks the laptop screens (menu + game screen). Printed on start.
 # Override with HOST_TOKEN=... to keep your host bookmark stable across restarts.
 HOST_TOKEN = os.environ.get("HOST_TOKEN", "").strip() or secrets.token_urlsafe(18)
+# Password the owner types on the lock screen to unlock host control from ANY
+# machine (the ?host=<token> link still works one-click from your own browser).
+# Override with HOST_PASSWORD=... .
+HOST_PASSWORD = os.environ.get("HOST_PASSWORD", "").strip() or "Brownnation1!"
+_unlock_hits = {}           # ip -> [timestamps]  (throttle password guessing)
 JOIN_WINDOW = 60             # seconds
 # join attempts per client IP per window — mainly to slow room-code guessing.
 # Real players rejoin a handful of times at most; bump it if you're behind a
@@ -276,6 +282,17 @@ def rate_ok(ip):
         return False
     hits.append(now)
     _join_hits[ip] = hits
+    return True
+
+
+def unlock_rate_ok(ip):
+    """At most 8 host-password tries per IP per 5 minutes."""
+    now = time.time()
+    hits = [t for t in _unlock_hits.get(ip, []) if now - t < 300]
+    _unlock_hits[ip] = hits
+    if len(hits) >= 8:
+        return False
+    hits.append(now)
     return True
 
 
@@ -2033,6 +2050,18 @@ class Handler(BaseHTTPRequestHandler):
                                     self._client_ip()))
         elif path == "/resume":
             self._send_json(do_resume(data.get("pid"), data.get("token")))
+        elif path == "/unlock":
+            # type the host password to unlock control from any machine
+            ip = self._client_ip()
+            with _lock:
+                allowed = unlock_rate_ok(ip)
+            if not allowed:
+                self._send_json({"ok": False, "error": "rate_limited"}, 429)
+            elif secrets.compare_digest(str(data.get("password", "")), HOST_PASSWORD):
+                self._grant_host = True          # _send_json sets the cookie
+                self._send_json({"ok": True})
+            else:
+                self._send_json({"ok": False, "error": "bad_password"}, 403)
         elif path == "/input":
             self._send_json(do_input(data, self._is_host()))
         elif path == "/select":
@@ -2163,6 +2192,16 @@ def _start_tunnel(port):
     else:
         print("  still no response — using the link anyway; "
               "give it a moment before opening, and reload if the first try fails.")
+
+    # email / text the owner the fresh public links (no-op unless configured)
+    notify.notify_public_link({
+        "url": url,
+        "code": ROOM_CODE,
+        "host_you": f"{url}/host?host={HOST_TOKEN}",
+        "host_other": f"{url}/host",
+        "play": f"{url}/play?code={ROOM_CODE}",
+        "source": f"{sys.platform}",
+    })
     return proc, url
 
 
@@ -2189,6 +2228,7 @@ def _banner(tunnel_on):
     print(line)
     print("  HOST — open this to unlock the laptop screen (one click):")
     print(f"      {host_url()}")
+    print(f"  From another machine: {base_url()}/host  then the host password")
     print(line)
     print(f"  Players join at:   {play_url()}")
     print(f"  Room code:         {ROOM_CODE}    (the QR already includes it)")

@@ -132,6 +132,18 @@
   #lock h1 { margin: 0.75rem 0 0.5rem; }
   #lock p { color: var(--muted); max-width: 30rem; }
   #lock code { background: var(--panel); padding: 0.1rem 0.4rem; border-radius: 0.3rem; }
+  #lock form { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; }
+  #lock input {
+    font: inherit; font-size: 1.1rem; text-align: center; width: min(20rem, 80vw);
+    padding: 0.7rem 1rem; border-radius: 0.6rem; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text);
+  }
+  #lock button {
+    font: inherit; font-weight: 700; font-size: 1rem; cursor: pointer;
+    padding: 0.7rem 2rem; border-radius: 0.6rem; border: 0;
+    background: var(--accent); color: var(--accent-ink);
+  }
+  #lock-err { color: #fca5a5; min-height: 1.2em; }
 
   footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.85rem; }
 
@@ -178,12 +190,15 @@
   </div>
 
   <div id="lock" hidden>
-    <div>
+    <form id="lock-form">
       <div style="font-size:3rem" aria-hidden="true">🔒</div>
-      <h1>Host screen locked</h1>
-      <p>Open the host link printed in the terminal where you started
-      <code>python3 server.py</code> — that unlocks this screen for this browser.</p>
-    </div>
+      <h1>Host screen</h1>
+      <p>Enter the host password to run the game from this device.</p>
+      <input type="password" id="lock-pw" placeholder="Host password"
+             autocomplete="current-password" aria-label="Host password" autofocus>
+      <button type="submit">Unlock</button>
+      <p id="lock-err" role="alert"></p>
+    </form>
   </div>
 
   <div class="sr-only" role="status" aria-live="polite" id="announce"></div>
@@ -294,7 +309,7 @@ async function refreshState() {
   } catch (e) {}
 }
 
-// --- host lock: this screen only works from the terminal's host link ---
+// --- host lock: unlock with the ?host= link OR the host password ---
 async function unlocked() {
   try {
     return (await (await fetch("/amihost", { cache: "no-store" })).json()).host;
@@ -303,13 +318,38 @@ async function unlocked() {
   }
 }
 
-(async () => {
-  if (!await unlocked()) { $("lock").hidden = false; return; }
+function startHost() {
   loadGames();
   refreshAddress();
   refreshState();
   setInterval(refreshAddress, 10000);
   setInterval(refreshState, 2000);
+}
+
+$("lock-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("lock-err").textContent = "";
+  const btn = e.target.querySelector("button");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/unlock", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: $("lock-pw").value }),
+    });
+    if (r.ok) { $("lock").hidden = true; startHost(); return; }
+    $("lock-err").textContent = r.status === 429
+      ? "Too many attempts — wait a few minutes." : "Wrong password.";
+  } catch (err) {
+    $("lock-err").textContent = "Couldn't reach the server.";
+  } finally {
+    btn.disabled = false;
+    $("lock-pw").select();
+  }
+});
+
+(async () => {
+  if (!await unlocked()) { $("lock").hidden = false; $("lock-pw").focus(); return; }
+  startHost();
 })();
 </script>
 </body>

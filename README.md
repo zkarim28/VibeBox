@@ -30,6 +30,20 @@ distro **Tkinter** package for the control window (Fedora:
 `sudo dnf install python3-tkinter`, Debian/Ubuntu: `sudo apt install python3-tk`).
 Without them the server still runs — Local mode, terminal only.
 
+### Hosting from another machine
+
+The host screen (menu + game view) is protected by a **password**, so you can
+open the host link from any device — your laptop, a friend's, a phone — and
+unlock it by typing the password (default `Brownnation1!`, override with
+`HOST_PASSWORD`). Your own `?host=…` bookmark still unlocks in one click.
+
+### Get the public link emailed / texted to you
+
+Every time a new Public (Cloudflare) link is created, the server can send you
+the host + player links. Copy `.env.example` to `.env` and fill in either SMTP
+details (e.g. a Gmail app-password) or a free `NOTIFY_WEBHOOK` (ntfy.sh). The
+launcher loads `.env` automatically. Nothing is sent unless you configure it.
+
 ## Taboo
 
 Two teams, **one phone each**. A card (guess word + 5 forbidden "taboo" words)

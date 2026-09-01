@@ -10,6 +10,15 @@
 set -u
 cd "$(cd "$(dirname "$0")" && pwd)" || exit 1
 
+# optional: load SMTP_* / NOTIFY_* / ROOM_CODE / HOST_PASSWORD etc. from a
+# local, git-ignored .env file so links can be emailed/texted to you.
+if [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env
+    set +a
+fi
+
 # ---- locate a usable Python 3 -------------------------------------------------
 PY=""
 for cand in python3 python; do
