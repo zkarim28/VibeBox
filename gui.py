@@ -75,10 +75,10 @@ def _apply_scale(root):
             UI = min(3.0, max(1.0, lh / 18.0))   # 18 px ≈ size-13 bold at 1x
         except tk.TclError:
             UI = 1.0
-        # don't let the tallest screen (running + QR ≈ 640 px at 1x) run off a
-        # short display
+        # don't let the tallest screen (running view + QR ≈ 820 px at 1x) run
+        # off a short display
         try:
-            UI = min(UI, max(1.0, 0.92 * root.winfo_screenheight() / 640))
+            UI = min(UI, max(1.0, (root.winfo_screenheight() - 70) / 820))
         except tk.TclError:
             pass
     WIN_W, GAP, PAD, RADIUS = _px(_WIN_W), _px(_GAP), _px(_PAD), _px(_RADIUS)
@@ -299,13 +299,26 @@ class _App(tk.Tk):
         self.update_idletasks()
         h = self.inner.winfo_reqheight() + 2 * MARGIN
         w = WIN_W + 2 * MARGIN
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         if not self._placed:
-            x = (self.winfo_screenwidth() - w) // 2
-            y = (self.winfo_screenheight() - h) // 3
-            self.geometry(f"{w}x{h}+{x}+{y}")
+            x = (sw - w) // 2
+            y = (sh - h) // 3          # bias up so the bottom stays visible
             self._placed = True
         else:
-            self.geometry(f"{w}x{h}+{self.winfo_x()}+{self.winfo_y()}")
+            x, y = self.winfo_x(), self.winfo_y()
+        # screens differ in height (the running view with its QR is the tallest)
+        # and Linux won't reposition a frameless window — so always pull the
+        # whole thing back on-screen, top-aligned if it's simply too tall.
+        try:
+            x11 = self.tk.call("tk", "windowingsystem") == "x11"
+        except tk.TclError:
+            x11 = False
+        top = _px(38) if x11 else _px(10)   # clear a typical Linux top panel
+        side = _px(10)
+        x = max(side, min(x, sw - w - side))
+        y = (max(top, min(y, sh - h - side))
+             if h + top + side < sh else top)
+        self.geometry(f"{w}x{h}+{x}+{y}")
         self.canvas.delete("bubble")
         _round_rect(self.canvas, GAP, GAP, w - GAP, h - GAP, RADIUS,
                     fill=CARD, outline=CARD_EDGE, width=1, tags="bubble")
@@ -498,7 +511,10 @@ class _App(tk.Tk):
     def _show_qr(self):
         try:
             img = tk.PhotoImage(data=base64.b64encode(self.ctx["qr_png"]()).decode())
-            f = max(1, img.width() // _px(200))
+            # ceil-divide so the QR never exceeds the target (subsample is 1/n
+            # only, so plain // would let it jump to full size just past 1x)
+            target = _px(215)
+            f = max(1, -(-img.width() // target))
             if f > 1:
                 img = img.subsample(f, f)
             self._qr_img = img
