@@ -8,10 +8,17 @@ circular import). Set GUI=0 (or run with --no-gui) to skip it.
 The window is a frameless, rounded "bubble" drawn on a Canvas — Tk has no
 native rounded widgets, so buttons, chips and the panel itself are all
 painted with smooth polygons. Drag it by the title bar; the ✕ closes it.
+
+Every pixel dimension is a base-1x number multiplied by UI, a scale factor
+_apply_scale() derives from the real rendered font height at startup — so the
+layout keeps up with a HiDPI / fractionally-scaled Linux desktop where Tk
+draws point-sized text much bigger. Force it with VIBEBOX_UI_SCALE=1.5 if the
+auto-detect is ever off.
 """
 
 import base64
 import math
+import os
 import signal
 import threading
 import time
@@ -33,13 +40,49 @@ GOOD = "#7fe0b6"
 BTN = "#243352"
 BTN_HOVER = "#30436a"
 
-WIN_W = 360          # inner content width
-GAP = 16            # transparent margin so the bubble looks like it floats
-PAD = 26            # padding between the bubble edge and the content
+# Base (1x) metrics — tuned on a 96-DPI / macOS display. On Linux the window
+# manager often renders point-sized fonts much larger (HiDPI panel, 125–200 %
+# desktop scaling), so _apply_scale() measures the real font height at startup
+# and blows every pixel dimension up by the same factor. Nothing here is used
+# directly for drawing once the app is running — go through UI / _px().
+_WIN_W, _GAP, _PAD, _RADIUS = 360, 16, 26, 30
+WIN_W, GAP, PAD, RADIUS = _WIN_W, _GAP, _PAD, _RADIUS
 MARGIN = GAP + PAD
-RADIUS = 30
+UI = 1.0             # pixel scale factor, set by _apply_scale()
 
 FAM = "Helvetica"   # replaced with a rounded family in _App.__init__ if present
+MONO = "Menlo"      # replaced with an available monospace family if present
+
+
+def _px(n):
+    """Scale a base-metric pixel value to this display."""
+    return max(1, int(round(n * UI)))
+
+
+def _apply_scale(root):
+    """Match the layout to however big Tk is actually drawing text here."""
+    global UI, WIN_W, GAP, PAD, MARGIN, RADIUS
+    forced = os.environ.get("VIBEBOX_UI_SCALE", "").strip()
+    if forced:
+        try:
+            UI = min(4.0, max(0.5, float(forced)))
+        except ValueError:
+            UI = 1.0
+    else:
+        try:
+            lh = tkfont.Font(root, family=FAM, size=13,
+                             weight="bold").metrics("linespace")
+            UI = min(3.0, max(1.0, lh / 18.0))   # 18 px ≈ size-13 bold at 1x
+        except tk.TclError:
+            UI = 1.0
+        # don't let the tallest screen (running + QR ≈ 640 px at 1x) run off a
+        # short display
+        try:
+            UI = min(UI, max(1.0, 0.92 * root.winfo_screenheight() / 640))
+        except tk.TclError:
+            pass
+    WIN_W, GAP, PAD, RADIUS = _px(_WIN_W), _px(_GAP), _px(_PAD), _px(_RADIUS)
+    MARGIN = GAP + PAD
 
 
 def _round_rect(cv, x1, y1, x2, y2, r, **kw):
@@ -87,7 +130,9 @@ class RoundBtn(tk.Canvas):
     }
 
     def __init__(self, parent, text, command, *, kind="normal",
-                 width=WIN_W, height=46, subtitle=None, size=13, mono=False):
+                 width=None, height=None, subtitle=None, size=13, mono=False):
+        width = WIN_W if width is None else _px(width)
+        height = _px(46) if height is None else _px(height)
         super().__init__(parent, width=width, height=height, bg=CARD,
                          highlightthickness=0, bd=0, cursor="hand2")
         self.command = command
@@ -107,13 +152,13 @@ class RoundBtn(tk.Canvas):
         self.bind("<ButtonRelease-1>", self._on_release)
 
     def _fnt(self, bold=True):
-        fam = "Menlo" if self._mono else FAM
+        fam = MONO if self._mono else FAM
         return (fam, self._size, "bold" if bold else "normal")
 
     def _render(self):
         self.delete("all")
         w, h = self._bw, self._bh
-        r = 22 if self._subtitle else h / 2
+        r = _px(22) if self._subtitle else h / 2
         outline = CARD_EDGE if self._kind == "ghost" else ""
         _round_rect(self, 2, 2, w - 2, h - 2, r, fill=self._cur,
                     outline=outline, width=1)
@@ -121,10 +166,10 @@ class RoundBtn(tk.Canvas):
             msg, col = self._flash
             self.create_text(w / 2, h / 2, text=msg, fill=col, font=self._fnt())
         elif self._subtitle:
-            self.create_text(w / 2, h / 2 - 9, text=self._text, fill=self._fg,
+            self.create_text(w / 2, h / 2 - _px(9), text=self._text, fill=self._fg,
                              font=(FAM, 13, "bold"))
             sub = ACCENT_INK if self._kind == "accent" else MUTED
-            self.create_text(w / 2, h / 2 + 11, text=self._subtitle, fill=sub,
+            self.create_text(w / 2, h / 2 + _px(11), text=self._subtitle, fill=sub,
                              font=(FAM, 10))
         else:
             self.create_text(w / 2, h / 2, text=self._text, fill=self._fg,
@@ -168,11 +213,21 @@ class _App(tk.Tk):
         self._placed = False
         self._spin_after = None
 
-        global FAM
-        for cand in ("SF Pro Rounded", "SF Compact Rounded", "Helvetica Neue"):
-            if cand in tkfont.families(self):
+        global FAM, MONO
+        fams = set(tkfont.families(self))
+        for cand in ("SF Pro Rounded", "SF Compact Rounded", "Helvetica Neue",
+                     "Cantarell", "Ubuntu", "Noto Sans", "DejaVu Sans"):
+            if cand in fams:
                 FAM = cand
                 break
+        for cand in ("Menlo", "SF Mono", "JetBrains Mono", "Fira Mono",
+                     "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono",
+                     "Ubuntu Mono", "monospace"):
+            if cand in fams:
+                MONO = cand
+                break
+
+        _apply_scale(self)   # size the layout to this display's font rendering
 
         self.title("Party Games")
         self.overrideredirect(True)
@@ -202,7 +257,7 @@ class _App(tk.Tk):
                  width=30, height=30, size=12).pack(side="right")
 
         self.status_holder = tk.Frame(self.inner, bg=CARD)
-        self.status_holder.pack(fill="x", pady=(8, 14))
+        self.status_holder.pack(fill="x", pady=(_px(8), _px(14)))
 
         self.content = tk.Frame(self.inner, bg=CARD)
         self.content.pack(fill="both", expand=True)
@@ -289,16 +344,17 @@ class _App(tk.Tk):
                      wraplength=WIN_W, font=(FAM, 12)).pack(anchor="w")
             return
         fnt = tkfont.Font(family=FAM, size=11, weight="bold")
-        tw = fnt.measure(text) + 32
-        cv = tk.Canvas(self.status_holder, width=tw, height=28, bg=CARD,
+        tw = fnt.measure(text) + _px(32)
+        h = _px(28)
+        cv = tk.Canvas(self.status_holder, width=tw, height=h, bg=CARD,
                        highlightthickness=0)
         cv.pack(anchor="w")
-        _round_rect(cv, 1, 1, tw - 1, 27, 13, fill=chip_bg, outline="")
-        cv.create_text(16, 15, text=text, fill=fg, font=fnt, anchor="w")
+        _round_rect(cv, 1, 1, tw - 1, h - 1, _px(13), fill=chip_bg, outline="")
+        cv.create_text(_px(16), h / 2, text=text, fill=fg, font=fnt, anchor="w")
 
     def _label(self, text):
         tk.Label(self.content, text=text, bg=CARD, fg=MUTED,
-                 font=(FAM, 10, "bold")).pack(anchor="w", pady=(12, 4))
+                 font=(FAM, 10, "bold")).pack(anchor="w", pady=(_px(12), _px(4)))
 
     # ------------------------------------------------------------ mode picker --
     def _show_mode_picker(self):
@@ -306,15 +362,15 @@ class _App(tk.Tk):
         self._set_status("How should phones connect?", MUTED)
 
         RoundBtn(self.content, "Local", lambda: self._show_running(public=False),
-                 kind="normal", height=58, subtitle="Same Wi-Fi only"
-                 ).pack(fill="x", pady=5)
+                 kind="normal", height=60, subtitle="Same Wi-Fi only"
+                 ).pack(fill="x", pady=_px(5))
         RoundBtn(self.content, "Public", self._go_public, kind="accent",
-                 height=58, subtitle="Anyone with the link + code"
-                 ).pack(fill="x", pady=5)
+                 height=60, subtitle="Anyone with the link + code"
+                 ).pack(fill="x", pady=_px(5))
         tk.Label(self.content,
                  text="Public opens a Cloudflare tunnel (needs cloudflared).",
                  bg=CARD, fg=MUTED, wraplength=WIN_W, justify="left",
-                 font=(FAM, 10)).pack(anchor="w", pady=(12, 0))
+                 font=(FAM, 10)).pack(anchor="w", pady=(_px(12), 0))
         self._relayout()
 
     def _go_public(self):
@@ -330,9 +386,10 @@ class _App(tk.Tk):
         self._relayout()
 
     def _spin(self):
-        self._dots = tk.Canvas(self.content, width=WIN_W, height=34, bg=CARD,
-                               highlightthickness=0)
-        self._dots.pack(pady=(14, 4))
+        self._dot_h = _px(34)
+        self._dots = tk.Canvas(self.content, width=WIN_W, height=self._dot_h,
+                               bg=CARD, highlightthickness=0)
+        self._dots.pack(pady=(_px(14), _px(4)))
         self._spin_phase = 0.0
         self._animate_dots()
 
@@ -340,10 +397,11 @@ class _App(tk.Tk):
         if not self._dots.winfo_exists():
             return
         self._dots.delete("all")
+        cy = self._dot_h / 2
         for i in range(3):
-            rad = 4 + 3 * (1 + math.sin(self._spin_phase + i * 0.9)) / 2
-            x = WIN_W / 2 + (i - 1) * 24
-            self._dots.create_oval(x - rad, 17 - rad, x + rad, 17 + rad,
+            rad = _px(4) + _px(3) * (1 + math.sin(self._spin_phase + i * 0.9)) / 2
+            x = WIN_W / 2 + (i - 1) * _px(24)
+            self._dots.create_oval(x - rad, cy - rad, x + rad, cy + rad,
                                    fill=ACCENT, outline="")
         self._spin_phase += 0.35
         self._spin_after = self.after(55, self._animate_dots)
@@ -386,9 +444,9 @@ class _App(tk.Tk):
                  ).pack(anchor="w")
         RoundBtn(self.content, "Run Local instead",
                  lambda: self._show_running(public=False), kind="normal",
-                 size=12).pack(fill="x", pady=(14, 0))
+                 size=12).pack(fill="x", pady=(_px(14), 0))
         RoundBtn(self.content, "Try the tunnel again", self._go_public,
-                 kind="ghost", size=12).pack(fill="x", pady=(8, 0))
+                 kind="ghost", size=12).pack(fill="x", pady=(_px(8), 0))
         self._relayout()
 
     # --------------------------------------------------------------- running ---
@@ -407,27 +465,27 @@ class _App(tk.Tk):
         self._label("HOST SCREEN — open this on the laptop")
         self._copy_pill(host, host)
         RoundBtn(self.content, "Open in browser",
-                 lambda: webbrowser.open(host), kind="ghost", height=38,
-                 size=11).pack(fill="x", pady=(6, 0))
+                 lambda: webbrowser.open(host), kind="ghost", height=40,
+                 size=11).pack(fill="x", pady=(_px(6), 0))
 
         self._label("PLAYERS JOIN AT")
         self._copy_pill(play.split("?")[0], play)
 
         row = tk.Frame(self.content, bg=CARD)
-        row.pack(anchor="w", pady=(14, 2))
+        row.pack(anchor="w", pady=(_px(14), _px(2)))
         tk.Label(row, text="ROOM CODE", bg=CARD, fg=MUTED,
                  font=(FAM, 10, "bold")).pack(side="left")
         tk.Label(row, text=self.ctx["room_code"], bg=CARD, fg=ACCENT,
-                 font=("Menlo", 22, "bold")).pack(side="left", padx=10)
+                 font=(MONO, 22, "bold")).pack(side="left", padx=_px(10))
 
         self._show_qr()
 
         RoundBtn(self.content, "Quit", self.quit_now, kind="ghost",
-                 size=12).pack(fill="x", pady=(16, 0))
+                 size=12).pack(fill="x", pady=(_px(16), 0))
         self._relayout()
 
     def _copy_pill(self, shown, payload):
-        btn = RoundBtn(self.content, shown, None, kind="ghost", height=40,
+        btn = RoundBtn(self.content, shown, None, kind="ghost", height=42,
                        size=11, mono=True)
 
         def do():
@@ -440,19 +498,20 @@ class _App(tk.Tk):
     def _show_qr(self):
         try:
             img = tk.PhotoImage(data=base64.b64encode(self.ctx["qr_png"]()).decode())
-            f = max(1, img.width() // 200)
+            f = max(1, img.width() // _px(200))
             if f > 1:
                 img = img.subsample(f, f)
             self._qr_img = img
+            pad = _px(22)
             s = img.width()
-            plate = tk.Canvas(self.content, width=s + 22, height=s + 22, bg=CARD,
-                              highlightthickness=0)
-            plate.pack(pady=(16, 2))
-            _round_rect(plate, 0, 0, s + 22, s + 22, 18, fill="#ffffff",
+            plate = tk.Canvas(self.content, width=s + pad, height=s + pad,
+                              bg=CARD, highlightthickness=0)
+            plate.pack(pady=(_px(16), _px(2)))
+            _round_rect(plate, 0, 0, s + pad, s + pad, _px(18), fill="#ffffff",
                         outline="")
-            plate.create_image((s + 22) / 2, (s + 22) / 2, image=img)
+            plate.create_image((s + pad) / 2, (s + pad) / 2, image=img)
             tk.Label(self.content, text="scan to join", bg=CARD, fg=MUTED,
-                     font=(FAM, 9)).pack(pady=(4, 0))
+                     font=(FAM, 9)).pack(pady=(_px(4), 0))
         except Exception:
             pass
 

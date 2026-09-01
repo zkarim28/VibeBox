@@ -23,7 +23,9 @@ Add a menu/desktop entry with `./start-party-games.sh install-shortcut`.
 
 **Any OS** — `python3 server.py` also works directly. Flags/env: `--no-gui`
 skips the control window; `MODE=local` / `MODE=public` skips the prompt;
-`NO_HTTPS=1` disables the local HTTPS listener.
+`NO_HTTPS=1` disables the local HTTPS listener. The control window sizes itself
+to your display; if it looks cramped on a scaled Linux desktop, set
+`VIBEBOX_UI_SCALE=1.5` (or whatever fits).
 
 Optional extras: **`cloudflared`** for Public (over-the-internet) mode, a
 distro **Tkinter** package for the control window (Fedora:
