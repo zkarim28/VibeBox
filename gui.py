@@ -5,9 +5,12 @@ A small Tkinter control window for the party-game server.
 needs is passed in through `ctx` so this file never imports `server` (no
 circular import). Set GUI=0 (or run with --no-gui) to skip it.
 
-The window is a frameless, rounded "bubble" drawn on a Canvas — Tk has no
-native rounded widgets, so buttons, chips and the panel itself are all
-painted with smooth polygons. Drag it by the title bar; the ✕ closes it.
+The panel is a rounded "bubble" drawn on a Canvas — Tk has no native rounded
+widgets, so buttons, chips and the panel itself are all painted with smooth
+polygons. On macOS the window is frameless and background-transparent; on
+Linux/Windows it keeps the normal window-manager frame (an override-redirect
+window on X11 would float over every other window and never lower). Drag it by
+any empty surface; the ✕ closes it.
 
 Every pixel dimension is a base-1x number multiplied by UI, a scale factor
 _apply_scale() derives from the real rendered font height at startup — so the
@@ -210,7 +213,7 @@ class _App(tk.Tk):
         self._running = True
         self._tunnel_result = None   # set by the worker thread, read by _pump()
         self._frames = 0
-        self._placed = False
+        self._pos = None            # our intended (x, y); avoids WM-frame creep
         self._spin_after = None
 
         global FAM, MONO
@@ -229,14 +232,26 @@ class _App(tk.Tk):
 
         _apply_scale(self)   # size the layout to this display's font rendering
 
-        self.title("Party Games")
-        self.overrideredirect(True)
-        self._transparent = False
         try:
-            self.wm_attributes("-transparent", True)
-            self.configure(bg="systemTransparent")
-            self._transparent = True
+            self._aqua = self.tk.call("tk", "windowingsystem") == "aqua"
         except tk.TclError:
+            self._aqua = False
+
+        self.title("Party Games")
+        self._transparent = False
+        if self._aqua:
+            # macOS: a frameless, background-transparent "bubble"
+            self.overrideredirect(True)
+            try:
+                self.wm_attributes("-transparent", True)
+                self.configure(bg="systemTransparent")
+                self._transparent = True
+            except tk.TclError:
+                self.configure(bg=BG)
+        else:
+            # Linux/Windows: keep the normal window-manager frame so the window
+            # can be lowered, minimised and alt-tabbed like any other — an
+            # override-redirect window on X11 floats over everything forever.
             self.configure(bg=BG)
 
         self.canvas = tk.Canvas(
@@ -271,11 +286,14 @@ class _App(tk.Tk):
 
     # ---------------------------------------------------------------- helpers --
     def _drag_start(self, e):
-        self._drag_off = (e.x_root - self.winfo_x(), e.y_root - self.winfo_y())
+        px, py = getattr(self, "_pos", None) or (self.winfo_x(), self.winfo_y())
+        self._drag_off = (e.x_root - px, e.y_root - py)
 
     def _drag_move(self, e):
-        self.geometry(f"+{e.x_root - self._drag_off[0]}"
-                      f"+{e.y_root - self._drag_off[1]}")
+        x = e.x_root - self._drag_off[0]
+        y = e.y_root - self._drag_off[1]
+        self._pos = (x, y)
+        self.geometry(f"+{x}+{y}")
 
     def _make_draggable(self, w):
         """Frameless window — so any non-button surface acts as the title bar."""
@@ -300,24 +318,18 @@ class _App(tk.Tk):
         h = self.inner.winfo_reqheight() + 2 * MARGIN
         w = WIN_W + 2 * MARGIN
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        if not self._placed:
-            x = (sw - w) // 2
-            y = (sh - h) // 3          # bias up so the bottom stays visible
-            self._placed = True
-        else:
-            x, y = self.winfo_x(), self.winfo_y()
-        # screens differ in height (the running view with its QR is the tallest)
-        # and Linux won't reposition a frameless window — so always pull the
-        # whole thing back on-screen, top-aligned if it's simply too tall.
-        try:
-            x11 = self.tk.call("tk", "windowingsystem") == "x11"
-        except tk.TclError:
-            x11 = False
-        top = _px(38) if x11 else _px(10)   # clear a typical Linux top panel
+        # remember our own intended position — re-reading winfo_x/y after the WM
+        # adds a title bar makes a decorated X11 window creep upward each call
+        x, y = self._pos or ((sw - w) // 2, (sh - h) // 3)
+        # different screens are different heights (the running view with its QR
+        # is the tallest); pull the whole thing back on-screen, top-aligned if
+        # it is simply too tall for the display.
+        top = _px(38) if not self._aqua else _px(10)   # clear a Linux top panel
         side = _px(10)
         x = max(side, min(x, sw - w - side))
         y = (max(top, min(y, sh - h - side))
              if h + top + side < sh else top)
+        self._pos = (x, y)
         self.geometry(f"{w}x{h}+{x}+{y}")
         self.canvas.delete("bubble")
         _round_rect(self.canvas, GAP, GAP, w - GAP, h - GAP, RADIUS,
@@ -328,7 +340,8 @@ class _App(tk.Tk):
     def _pop_to_front(self):
         self.update_idletasks()
         self.lift()
-        self.attributes("-topmost", True)   # _pump() drops this after ~0.5s
+        if self._aqua:
+            self.attributes("-topmost", True)   # _pump() drops it after ~0.5s
         try:
             self.focus_force()
         except tk.TclError:
