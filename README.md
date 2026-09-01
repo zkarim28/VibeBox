@@ -8,6 +8,28 @@ are stubbed on the menu as "Coming soon".
 
 No dependencies — just Python 3 (stdlib only).
 
+## Running it
+
+**macOS** — double-click **`Start Party Games.command`** in Finder
+(right-click → Open the first time).
+
+**Linux** — from a terminal in this folder:
+
+```
+./start-party-games.sh
+```
+
+Add a menu/desktop entry with `./start-party-games.sh install-shortcut`.
+
+**Any OS** — `python3 server.py` also works directly. Flags/env: `--no-gui`
+skips the control window; `MODE=local` / `MODE=public` skips the prompt;
+`NO_HTTPS=1` disables the local HTTPS listener.
+
+Optional extras: **`cloudflared`** for Public (over-the-internet) mode, a
+distro **Tkinter** package for the control window (Fedora:
+`sudo dnf install python3-tkinter`, Debian/Ubuntu: `sudo apt install python3-tk`).
+Without them the server still runs — Local mode, terminal only.
+
 ## Taboo
 
 Two teams, **one phone each**. A card (guess word + 5 forbidden "taboo" words)

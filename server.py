@@ -2091,12 +2091,36 @@ def _ask_mode():
     return "public" if ans.startswith("p") else "local"
 
 
+def _install_hint(tool):
+    """A best-effort, OS-appropriate 'how to get <tool>' line."""
+    if tool == "cloudflared":
+        if sys.platform == "darwin":
+            return "brew install cloudflared"
+        if sys.platform.startswith("linux"):
+            return ("grab the binary from "
+                    "https://github.com/cloudflare/cloudflared/releases "
+                    "(or add Cloudflare's package repo)")
+        return "see https://github.com/cloudflare/cloudflared/releases"
+    # package names differ per distro for a few tools
+    names = {
+        "python3-tkinter": {"apt": "python3-tk", "pacman": "tk", "brew": "python-tk",
+                            "dnf": "python3-tkinter", "zypper": "python3-tk"},
+    }.get(tool, {})
+    if sys.platform == "darwin":
+        return f"brew install {names.get('brew', tool)}"
+    for mgr, cmd in (("dnf", "sudo dnf install"), ("apt", "sudo apt install"),
+                     ("pacman", "sudo pacman -S"), ("zypper", "sudo zypper install")):
+        if shutil.which(mgr):
+            return f"{cmd} {names.get(mgr, tool)}"
+    return f"install {tool} with your package manager"
+
+
 def _start_tunnel(port):
     """Launch `cloudflared` and return (proc, https_url), or None on failure."""
     exe = shutil.which("cloudflared")
     if not exe:
         print("\n  cloudflared isn't on your PATH. Install it with:")
-        print("      brew install cloudflared")
+        print(f"      {_install_hint('cloudflared')}")
         return None
     print("\n  starting a Cloudflare tunnel (a few seconds)…")
     proc = subprocess.Popen(
@@ -2197,9 +2221,15 @@ def _want_gui():
         return False
     if not sys.stdout.isatty() and not os.environ.get("GUI"):
         return False
+    # a headless Linux box (ssh, no X/Wayland) can't show a window
+    if sys.platform.startswith("linux") and not (
+            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return False
     try:
         import tkinter  # noqa: F401
     except Exception:
+        print("  (no Tkinter — running in the terminal. Install it with "
+              f"'{_install_hint('python3-tkinter')}' for the control window.)")
         return False
     return True
 
@@ -2220,9 +2250,11 @@ def main():
         srv = ThreadingHTTPServer((HOST, PORT), Handler)   # binds + listens now
     except OSError as exc:
         if exc.errno in (48, 98):   # EADDRINUSE (macOS / Linux)
+            kill = (f"lsof -ti tcp:{PORT} | xargs kill"
+                    if shutil.which("lsof") else f"fuser -k {PORT}/tcp")
             print(f"\n  Port {PORT} is already in use — a party-game window is\n"
                   f"  probably still open somewhere. Close that window, or run:\n\n"
-                  f"      lsof -ti tcp:{PORT} | xargs kill\n\n"
+                  f"      {kill}\n\n"
                   f"  then start again.\n")
             sys.exit(1)
         raise
@@ -2265,13 +2297,17 @@ def main():
                 "set_public_url": _set_public,
                 "set_tunnel": lambda t: hold.__setitem__("tunnel", t),
                 "banner": _banner,
+                "install_hint": _install_hint,
             }
             try:
                 gui.run(ctx)
-            finally:
+            except Exception as exc:
+                # e.g. Tk can't open a display on this box — drop to the terminal
+                print(f"  (control window couldn't start: {exc} — using the terminal)\n")
+            else:
                 print("\n  bye\n")
                 _cleanup()
-            return
+                return
 
     # ---- terminal-only fallback ----
     if not PUBLIC_URL and _ask_mode() == "public":

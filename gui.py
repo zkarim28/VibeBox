@@ -378,10 +378,11 @@ class _App(tk.Tk):
         self._clear()
         self._set_status("The tunnel didn't start.", DANGER, chip=True,
                          chip_bg="#3a1420")
+        hint = self.ctx.get("install_hint", lambda t: "brew install " + t)
         tk.Label(self.content, justify="left", bg=CARD, fg=MUTED,
                  wraplength=WIN_W, font=(FAM, 11),
                  text="See the terminal for cloudflared's output.\n"
-                      "Install it with:   brew install cloudflared"
+                      "Install it with:   " + hint("cloudflared")
                  ).pack(anchor="w")
         RoundBtn(self.content, "Run Local instead",
                  lambda: self._show_running(public=False), kind="normal",
