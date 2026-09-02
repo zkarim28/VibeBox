@@ -354,6 +354,50 @@
   .wii-players { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
   .wii-players span { background: #1e293b; border-radius: 999px; padding: 0.25rem 0.85rem; font-weight: 700; }
   .wii-players span.rdy { background: #14532d; color: #bbf7d0; }
+
+  /* --- Imposter --- */
+  #view-imposter { width: min(1000px, 100%); display: flex; flex-direction: column; align-items: center; }
+  #view-imposter h1 { text-align: center; }
+  .imp-cat { text-align: center; margin: 0.5rem 0 1rem; }
+  .imp-cat .lbl { color: #94a3b8; font-size: 0.9rem; letter-spacing: 0.15em; text-transform: uppercase; }
+  .imp-cat .name { font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 800; }
+  .imp-cat .rnd { color: #64748b; font-size: 1rem; margin-top: 0.2rem; }
+  .imp-turn { font-size: clamp(1.2rem, 3.5vw, 2rem); font-weight: 800; text-align: center; margin: 0.5rem 0 1rem; }
+  .imp-order { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; margin-bottom: 1.25rem; }
+  .imp-order span { background: #1e293b; border-radius: 999px; padding: 0.2rem 0.8rem; font-weight: 700; opacity: 0.5; }
+  .imp-order span.done { opacity: 1; }
+  .imp-order span.now { opacity: 1; outline: 2px solid #fff; }
+
+  .imp-board { width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 1rem; }
+  .imp-round h3 { color: #64748b; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.4rem; }
+  .imp-clue { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.35rem 0; border-bottom: 1px solid #131c30; }
+  .imp-clue .who { font-weight: 800; min-width: 7rem; }
+  .imp-clue .txt { font-size: 1.2rem; }
+  .imp-clue.skip .txt { color: #64748b; font-style: italic; }
+
+  .imp-controls { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; margin-top: 1.5rem; }
+  .imp-note { color: #94a3b8; text-align: center; margin-top: 1rem; }
+
+  .imp-cands { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 0.5rem; }
+  .imp-cand { display: flex; align-items: center; gap: 0.75rem; }
+  .imp-cand .nm { font-weight: 800; min-width: 8rem; }
+  .imp-cand .bar { flex: 1; height: 1.4rem; background: #1e293b; border-radius: 999px; overflow: hidden; }
+  .imp-cand .bar > i { display: block; height: 100%; background: #38bdf8; border-radius: 999px; transition: width 0.3s; }
+  .imp-cand .ct { width: 2rem; text-align: right; font-weight: 800; }
+
+  .imp-big { text-align: center; }
+  .imp-big .em { font-size: clamp(3rem, 10vw, 6rem); }
+  .imp-big h2 { font-size: clamp(1.6rem, 5vw, 3rem); margin: 0.5rem 0; }
+  .imp-big .guess { font-size: clamp(1.8rem, 6vw, 3.5rem); font-weight: 800; color: #fbbf24; margin: 1rem 0; }
+  .imp-result { font-size: 1.4rem; font-weight: 800; margin: 0.75rem 0; }
+  .imp-result.good { color: #4ade80; } .imp-result.bad { color: #f87171; }
+
+  .imp-reveal { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 0.35rem; margin: 1rem 0; }
+  .imp-reveal .row { display: flex; justify-content: space-between; padding: 0.4rem 0.7rem; background: #131c30; border-radius: 0.5rem; }
+  .imp-reveal .row.imp { background: #3a1420; }
+  .imp-reveal .tag { color: #94a3b8; font-weight: 700; }
+  .imp-reveal .tag.imp { color: #fca5a5; }
+  .imp-reveal .row.dead .nm { text-decoration: line-through; opacity: 0.6; }
 </style>
 </head>
 <body>
@@ -702,6 +746,87 @@
     </div>
   </div>
 
+  <!-- ============ IMPOSTER ============ -->
+  <div id="view-imposter" hidden>
+    <h1>Imposter<span></span></h1>
+
+    <!-- lobby -->
+    <div id="imp-lobby">
+      <div class="join">
+        <div class="label">On your phone, go to</div>
+        <div class="url" data-join-url>…</div>
+        <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
+        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+      </div>
+      <div class="settings" style="max-width:520px">
+        <div class="setting">
+          <span class="lbl">Number of imposters</span>
+          <span class="num">
+            <button class="btn ghost" id="imp-n-dn" type="button">−</button>
+            <b id="imp-n" style="font-size:1.4rem;min-width:1.5rem;text-align:center;display:inline-block">1</b>
+            <button class="btn ghost" id="imp-n-up" type="button">+</button>
+          </span>
+        </div>
+      </div>
+      <p class="scat-sub" id="imp-lobby-count" style="margin:1.25rem 0">No players yet.</p>
+      <div class="wii-players" id="imp-lobby-players" style="margin-bottom:1.25rem"></div>
+      <button class="btn" id="imp-start" type="button">Start Game 🎭</button>
+    </div>
+
+    <!-- clue / review -->
+    <div id="imp-play" hidden>
+      <div class="imp-cat">
+        <div class="lbl">Category</div>
+        <div class="name" id="imp-cat-name">…</div>
+        <div class="rnd" id="imp-round">Round 1</div>
+      </div>
+      <div class="imp-turn" id="imp-turn" hidden></div>
+      <div class="imp-order" id="imp-order" hidden></div>
+      <div class="imp-board" id="imp-board"></div>
+      <p class="imp-note" id="imp-note" hidden></p>
+      <div class="imp-controls" id="imp-controls" hidden>
+        <button class="btn ghost" id="imp-skip" type="button" hidden>Skip this turn</button>
+        <button class="btn" id="imp-next" type="button" hidden>Next round ›</button>
+        <button class="btn ghost" id="imp-vote" type="button" hidden>Call a vote 🗳️</button>
+        <button class="btn ghost" id="imp-end" type="button" hidden>Reveal &amp; end</button>
+      </div>
+    </div>
+
+    <!-- vote -->
+    <div id="imp-voting" hidden>
+      <h2 style="text-align:center;font-size:clamp(1.4rem,4vw,2.2rem);margin-bottom:1rem">Who's the imposter?</h2>
+      <div class="imp-cands" id="imp-cands"></div>
+      <p class="imp-note" id="imp-vote-count"></p>
+      <div class="imp-controls">
+        <button class="btn" id="imp-vote-resolve" type="button">Reveal the vote</button>
+      </div>
+    </div>
+
+    <!-- guess -->
+    <div id="imp-guessing" hidden class="imp-big">
+      <div class="em">🕵️</div>
+      <h2 id="imp-guess-who">…</h2>
+      <div class="guess" id="imp-guess-text" hidden></div>
+      <p class="imp-note">They say the word out loud. Was it right?</p>
+      <div class="imp-controls">
+        <button class="btn" id="imp-guess-yes" type="button" style="background:#22c55e">Correct ✓</button>
+        <button class="btn ghost" id="imp-guess-no" type="button">Wrong ✗</button>
+      </div>
+    </div>
+
+    <!-- game over -->
+    <div id="imp-over" hidden class="imp-big">
+      <div class="em" id="imp-over-em">🎭</div>
+      <h2 id="imp-over-title">…</h2>
+      <p style="font-size:1.2rem">The word was <b id="imp-over-word" style="color:#38bdf8"></b></p>
+      <div class="imp-reveal" id="imp-reveal"></div>
+      <div class="imp-controls">
+        <button class="btn" id="imp-again" type="button">New game</button>
+        <button class="btn ghost" id="imp-lobbybtn" type="button">Back to lobby</button>
+      </div>
+    </div>
+  </div>
+
   <div class="tb-flash" id="tb-flash"></div>
 
 <script>
@@ -778,7 +903,7 @@ let leaving = false;
 let lastState = null;
 function render(s) {
   lastState = s;
-  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox"].includes(s.game)) {
+  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter"].includes(s.game)) {
     location.href = "/"; return;
   }
   $("view-tap").hidden = s.game !== "tap-race";
@@ -787,12 +912,14 @@ function render(s) {
   $("view-blackbox").hidden = s.game !== "blackbox";
   $("view-codenames").hidden = s.game !== "codenames";
   $("view-wii").hidden = s.game !== "wii-sandbox";
+  $("view-imposter").hidden = s.game !== "imposter";
   if (s.game === "tap-race") renderTap(s);
   else if (s.game === "scattergories") renderScat(s);
   else if (s.game === "taboo") renderTaboo(s);
   else if (s.game === "blackbox") renderBlackbox(s);
   else if (s.game === "codenames") renderCodenames(s);
   else if (s.game === "wii-sandbox") renderWii(s);
+  else if (s.game === "imposter") renderImposter(s);
 }
 
 // ================= TAP RACE =================
@@ -1438,12 +1565,129 @@ function wiiStartRAF() {
   requestAnimationFrame(loop);
 }
 
+// ================= IMPOSTER =================
+function impClueBoardHTML(clues) {
+  if (!clues || !clues.length) return '<p class="imp-note">No clues yet.</p>';
+  const rounds = [...new Set(clues.map(c => c.round))].sort((a, b) => a - b);
+  return rounds.map(r => {
+    const rows = clues.filter(c => c.round === r).map(c =>
+      `<div class="imp-clue${c.text === "(skipped)" ? " skip" : ""}">
+         <span class="who" style="color:${c.color}">${esc(c.name)}</span>
+         <span class="txt">${esc(c.text)}</span></div>`).join("");
+    return `<div class="imp-round"><h3>Round ${r}</h3>${rows}</div>`;
+  }).join("");
+}
+
+function renderImposter(s) {
+  const im = s.imposter; if (!im) return;
+  const P = ["lobby", "play", "voting", "guessing", "over"];
+  const phaseView = { lobby: "lobby", clue: "play", review: "play",
+                      vote: "voting", guess: "guessing", gameover: "over" }[im.phase] || "lobby";
+  P.forEach(v => $("imp-" + v).hidden = v !== phaseView);
+
+  // lobby
+  $("imp-n").textContent = im.imposterCount;
+  $("imp-n-dn").disabled = im.imposterCount <= 1;
+  $("imp-n-up").disabled = im.imposterCount >= im.imposterMax;
+  const n = s.players.length;
+  $("imp-lobby-count").textContent = n
+    ? `${n} player${n === 1 ? "" : "s"} connected` + (n < 3 ? " — need at least 3" : "")
+    : "No players yet — have them scan the code.";
+  $("imp-lobby-players").innerHTML = s.players
+    .map(p => `<span style="color:${p.color}">${esc(p.name)}</span>`).join("");
+  $("imp-start").disabled = n < 3;
+
+  // clue / review
+  if (phaseView === "play") {
+    $("imp-cat-name").textContent = im.category || "…";
+    $("imp-round").textContent = "Round " + im.round;
+    $("imp-board").innerHTML = impClueBoardHTML(im.clues);
+    const review = im.phase === "review";
+    $("imp-turn").hidden = review;
+    $("imp-order").hidden = review;
+    if (!review) {
+      $("imp-turn").innerHTML = im.turnName
+        ? `→ <span style="color:${im.turnColor}">${esc(im.turnName)}</span>'s clue`
+        : "Waiting…";
+      $("imp-order").innerHTML = (im.order || []).map(o =>
+        `<span class="${o.done ? "done" : ""}${o.pid === im.turnPid ? " now" : ""}" style="color:${o.color}">${esc(o.name)}</span>`).join("");
+    }
+    $("imp-note").hidden = !review;
+    if (review) $("imp-note").innerHTML =
+      "Discuss. An imposter can tap <b>guess the word</b> on their phone — "
+      + `${im.impostersLeft} imposter${im.impostersLeft === 1 ? "" : "s"} still hidden.`;
+    $("imp-controls").hidden = false;
+    $("imp-skip").hidden = review;
+    $("imp-next").hidden = !review;
+    $("imp-vote").hidden = !review;
+    $("imp-end").hidden = !review;
+    if (im.voteResult && review) {
+      const vr = im.voteResult;
+      $("imp-note").innerHTML += vr.tie
+        ? '<br><span style="color:#fbbf24">Last vote tied — nobody out.</span>'
+        : `<br><span style="color:${vr.wasImposter ? '#4ade80' : '#f87171'}">${esc(vr.name)} was voted out — ${vr.wasImposter ? "an IMPOSTER! 🎯" : "not an imposter."}</span>`;
+    }
+  }
+
+  // vote
+  if (im.phase === "vote") {
+    const cands = im.candidates || [];
+    const tally = im.tally || {};
+    const max = Math.max(1, ...Object.values(tally));
+    $("imp-cands").innerHTML = cands.map(c => {
+      const ct = tally[c.pid] || 0;
+      return `<div class="imp-cand"><span class="nm" style="color:${c.color}">${esc(c.name)}</span>
+        <span class="bar"><i style="width:${(ct / max) * 100}%"></i></span>
+        <span class="ct">${ct}</span></div>`;
+    }).join("");
+    $("imp-vote-count").textContent = `${im.votesIn} / ${im.votersNeeded} votes in`;
+  }
+
+  // guess
+  if (im.phase === "guess") {
+    $("imp-guess-who").innerHTML =
+      `<span style="color:${im.guesserColor}">${esc(im.guesserName || "?")}</span> is guessing the word!`;
+    $("imp-guess-text").hidden = !im.guessText;
+    $("imp-guess-text").textContent = im.guessText ? `“${im.guessText}”` : "";
+  }
+
+  // game over
+  if (im.phase === "gameover") {
+    const crew = im.winner === "crew";
+    $("imp-over-em").textContent = crew ? "🎉" : "🎭";
+    $("imp-over-title").textContent = crew ? "Crew wins — all imposters caught!" : "The imposters win!";
+    $("imp-over-word").textContent = im.word || "?";
+    $("imp-reveal").innerHTML = [...im.roster]
+      .filter(r => r.inGame)
+      .sort((a, b) => (a.role === "imposter" ? -1 : 1) - (b.role === "imposter" ? -1 : 1))
+      .map(r => {
+        const isImp = r.role === "imposter";
+        return `<div class="row ${isImp ? "imp" : ""} ${r.out ? "dead" : ""}">
+          <span class="nm" style="color:${r.color}">${esc(r.name)}</span>
+          <span class="tag ${isImp ? "imp" : ""}">${isImp ? "IMPOSTER" : "crew"}${r.out ? " · out" : ""}</span></div>`;
+      }).join("");
+  }
+}
+$("imp-n-dn").addEventListener("click", () => post({ action: "impSet", key: "imposterCount", value: (lastState.imposter.imposterCount - 1) }));
+$("imp-n-up").addEventListener("click", () => post({ action: "impSet", key: "imposterCount", value: (lastState.imposter.imposterCount + 1) }));
+$("imp-start").addEventListener("click", () => post({ action: "impStart" }));
+$("imp-skip").addEventListener("click", () => post({ action: "impSkip" }));
+$("imp-next").addEventListener("click", () => post({ action: "impNextRound" }));
+$("imp-vote").addEventListener("click", () => post({ action: "impVoteStart" }));
+$("imp-vote-resolve").addEventListener("click", () => post({ action: "impVoteResolve" }));
+$("imp-end").addEventListener("click", () => { if (confirm("Reveal roles and end the game?")) post({ action: "impEndGame" }); });
+$("imp-guess-yes").addEventListener("click", () => post({ action: "impGuessJudge", correct: true }));
+$("imp-guess-no").addEventListener("click", () => post({ action: "impGuessJudge", correct: false }));
+$("imp-again").addEventListener("click", () => post({ action: "impStart" }));
+$("imp-lobbybtn").addEventListener("click", () => post({ action: "impLobby" }));
+
 // ---- live updates: poll /state (works through any proxy / tunnel; SSE didn't) ----
 function hostPollDelay() {
   const s = lastState;
   if (s && s.game === "wii-sandbox") return 60;
   if (s && s.game === "taboo" && s.taboo && (s.taboo.phase === "turn" || s.taboo.phase === "ready")) return 300;
   if (s && s.game === "blackbox" && s.blackbox && s.blackbox.phase === "judge") return 300;
+  if (s && s.game === "imposter") return 500;
   return 550;
 }
 async function pollHost() {

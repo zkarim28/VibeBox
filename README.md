@@ -89,6 +89,27 @@ Host lobby settings: time per round, show-usernames, alliteration bonus, and a
 **Reset scores** button. `Start Round` begins; `New Round` (after a round)
 returns to the lobby.
 
+## Imposter
+
+Social deduction. Everyone sees the **category**; the crew also sees a secret
+**word**, but the randomly chosen **imposter(s)** just see "YOU'RE THE
+IMPOSTER". Set how many imposters in the lobby (needs 3+ players).
+
+- Each round every player takes a turn on their phone to type **one clue word**
+  hinting at the secret word — imposter included, bluffing. The big screen shows
+  whose turn it is and the clues as they land.
+- After everyone's clued, it's **discussion** time. From here the host can start
+  another round (every clue from every past round stays on screen, labelled by
+  who said it), **call a vote**, or reveal & end.
+- A vote: everyone taps who they suspect. The top pick is revealed — if they're
+  an imposter they're **out**; if not, that crew member is out anyway.
+- Any imposter who thinks they've cracked the word can hit **guess** on their
+  phone. Every screen shows who's guessing; they say the word out loud and the
+  host taps Correct / Wrong. **Wrong → they're out. Correct → the imposters
+  win.**
+- **Crew win** when every imposter is out. **Imposters win** on a correct guess
+  or if every crew member gets eliminated.
+
 ## Run
 
 ```bash

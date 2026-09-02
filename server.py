@@ -30,6 +30,7 @@ from urllib.parse import urlparse, parse_qs
 
 import blackbox       # local, BlackBox (CAH-style) card decks
 import codenames      # local, Codenames word list + board dealer
+import imposter       # local, Imposter word list
 import notify         # local, emails/texts the owner when a public link opens
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
@@ -96,6 +97,8 @@ HOST_ONLY = {
     "blackboxStart", "blackboxSet", "blackboxNewGame", "blackboxEndGame",
     "cnStart", "cnMode", "cnNewGame", "cnLobby", "cnAutoTeam",
     "wiiReset", "wiiSelect", "wiiOpen", "wiiSens",
+    "impSet", "impStart", "impNextRound", "impVoteStart", "impVoteResolve",
+    "impSkip", "impGuessJudge", "impEndGame", "impLobby",
 }
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
@@ -148,6 +151,14 @@ GAMES = [
         "players": "1-8 players",
         "status": "ready",
         "emoji": "\N{VIDEO GAME}",
+    },
+    {
+        "id": "imposter",
+        "name": "Imposter",
+        "tagline": "Everyone gets the secret word — except the imposters. Give a clue, blend in, don't get caught.",
+        "players": "4-10 players",
+        "status": "ready",
+        "emoji": "\N{PERFORMING ARTS}",
     },
     {
         "id": "doodle-dash",
@@ -426,6 +437,28 @@ WII_BUF_SECS = 1.0
 WII_BUF_MAX = 48
 
 
+def fresh_imposter():
+    """Imposter sub-state in its lobby form. pid-keyed dicts use int keys."""
+    return {
+        "phase": "lobby",       # lobby | clue | review | vote | guess | gameover
+        "imposterCount": 1,     # how many imposters this game
+        "category": None,
+        "word": None,           # secret word (never sent to imposters)
+        "round": 0,
+        "roles": {},            # pid -> "imposter" | "crew"
+        "out": {},              # pid -> "guessed_wrong" | "voted"  (eliminated)
+        "order": [],            # pids, turn order for the current clue round
+        "turnIndex": 0,         # position in `order`
+        "clues": [],            # [{"round","pid","name","color","text"}]  all rounds
+        "votes": {},            # voterPid -> targetPid
+        "voteResult": None,     # {"pid","name","wasImposter"} after a vote resolves
+        "guesser": None,        # pid of the imposter currently guessing
+        "guessText": None,      # what they typed / said
+        "lastGuess": None,      # {"name","text","correct"} for the big screen
+        "winner": None,         # "crew" | "imposters"
+    }
+
+
 state = {
     "game": None,             # None = menu screen, else a GAMES id
     "phase": "lobby",         # tap-race phase: lobby | playing | over
@@ -437,6 +470,7 @@ state = {
     "blackbox": fresh_blackbox(),
     "codenames": fresh_codenames(),
     "wii": fresh_wii(),
+    "imposter": fresh_imposter(),
 }
 _next_pid = [1]
 
@@ -930,6 +964,105 @@ def _wii_public(for_pid=None):
     return out
 
 
+# ------------------------------------------------------------ imposter public ---
+def _imp_active_pids():
+    im = state["imposter"]
+    return [pid for pid in im["roles"]
+            if pid in state["players"] and pid not in im["out"]]
+
+
+def _imp_public(for_pid=None):
+    im = state["imposter"]
+    players = state["players"]
+    active = _imp_active_pids()
+    imps_in = [pid for pid in active if im["roles"][pid] == "imposter"]
+
+    roster = []
+    for pid, p in players.items():
+        role = im["roles"].get(pid)
+        row = {
+            "pid": pid, "name": p["name"], "color": p["color"],
+            "connected": p.get("connected", True),
+            "inGame": role is not None,
+            "out": im["out"].get(pid),          # None | guessed_wrong | voted
+        }
+        if im["phase"] == "gameover" and role:
+            row["role"] = role
+        roster.append(row)
+    roster.sort(key=lambda r: r["pid"])
+
+    out = {
+        "phase": im["phase"],
+        "imposterCount": im["imposterCount"],
+        "imposterMax": max(1, len(players) - 1),
+        "category": im["category"],
+        "round": im["round"],
+        "roster": roster,
+        "clues": im["clues"],                   # every round, chronological
+        "playerCount": len(players),
+        "activeCount": len(active),
+        "impostersLeft": len(imps_in),
+        "voteResult": im["voteResult"],
+        "lastGuess": im["lastGuess"],
+    }
+
+    if im["phase"] == "clue":
+        turn_pid = (im["order"][im["turnIndex"]]
+                    if im["turnIndex"] < len(im["order"]) else None)
+        tp = players.get(turn_pid, {})
+        out["turnPid"] = turn_pid
+        out["turnName"] = tp.get("name")
+        out["turnColor"] = tp.get("color")
+        out["cluedThisRound"] = sum(1 for c in im["clues"] if c["round"] == im["round"])
+        out["clueTargetCount"] = len(im["order"])
+        out["order"] = [{
+            "pid": pid,
+            "name": players.get(pid, {}).get("name", "?"),
+            "color": players.get(pid, {}).get("color", "#888"),
+            "done": any(c["round"] == im["round"] and c["pid"] == pid
+                        for c in im["clues"]),
+        } for pid in im["order"]]
+
+    if im["phase"] == "vote":
+        out["candidates"] = [
+            {"pid": pid, "name": players[pid]["name"], "color": players[pid]["color"]}
+            for pid in active]
+        tally = {}
+        for t in im["votes"].values():
+            tally[t] = tally.get(t, 0) + 1
+        out["tally"] = tally
+        out["votesIn"] = len(im["votes"])
+        out["votersNeeded"] = len(active)
+
+    if im["phase"] == "guess":
+        gp = players.get(im["guesser"], {})
+        out["guesserPid"] = im["guesser"]
+        out["guesserName"] = gp.get("name")
+        out["guesserColor"] = gp.get("color")
+        out["guessText"] = im["guessText"]
+
+    if im["phase"] == "gameover":
+        out["winner"] = im["winner"]
+        out["word"] = im["word"]
+
+    if for_pid is not None:
+        role = im["roles"].get(for_pid)
+        out["youInGame"] = role is not None
+        out["youAreImposter"] = role == "imposter"
+        out["youAreOut"] = im["out"].get(for_pid)
+        out["yourWord"] = im["word"] if role == "crew" else None
+        if im["phase"] == "clue":
+            out["yourTurn"] = (
+                role is not None and for_pid not in im["out"]
+                and im["turnIndex"] < len(im["order"])
+                and im["order"][im["turnIndex"]] == for_pid)
+        if im["phase"] == "vote":
+            out["yourVote"] = im["votes"].get(for_pid)
+        if im["phase"] == "guess":
+            out["youAreGuessing"] = im["guesser"] == for_pid
+    return out
+
+
 def public_state(for_pid=None):
     """State shaped for the clients (players as a sorted list, no timestamps).
     `for_pid` (set on a /state?pid= poll) adds that player's own private view."""
@@ -953,6 +1086,7 @@ def public_state(for_pid=None):
         "blackbox": _blackbox_public(for_pid) if state["game"] == "blackbox" else None,
         "codenames": _codenames_public(for_pid) if state["game"] == "codenames" else None,
         "wii": _wii_public(for_pid) if state["game"] == "wii-sandbox" else None,
+        "imposter": _imp_public(for_pid) if state["game"] == "imposter" else None,
     }
 
 
@@ -1137,6 +1271,10 @@ def do_select(game):
         keepw = state["wii"]
         state["wii"] = fresh_wii()
         state["wii"]["sens"] = keepw["sens"]
+
+        keepim = state["imposter"]
+        state["imposter"] = fresh_imposter()
+        state["imposter"]["imposterCount"] = keepim["imposterCount"]
 
         if game == "taboo":
             _taboo_autoteam()
@@ -1829,6 +1967,251 @@ def do_wii(pid, action, data, is_host=False):
     return {"ok": False, "error": "unknown_action"}
 
 
+# ------------------------------------------------------------- imposter actions ---
+def _imp_fold_in_newcomers():
+    """Anyone who joined after the deal comes in as crew for the next round."""
+    im = state["imposter"]
+    for pid in state["players"]:
+        im["roles"].setdefault(pid, "crew")
+
+
+def _imp_build_order():
+    im = state["imposter"]
+    pids = _imp_active_pids()
+    random.shuffle(pids)
+    im["order"] = pids
+    im["turnIndex"] = 0
+
+
+def _imp_start_game():
+    im = state["imposter"]
+    pids = list(state["players"])
+    k = max(1, min(im["imposterCount"], max(1, len(pids) - 1)))
+    im["imposterCount"] = k
+    imps = set(random.sample(pids, k))
+    im["roles"] = {pid: ("imposter" if pid in imps else "crew") for pid in pids}
+    im["out"] = {}
+    im["category"], im["word"] = imposter.pick_word()
+    im["round"] = 1
+    im["clues"] = []
+    im["votes"] = {}
+    im["voteResult"] = None
+    im["guesser"] = None
+    im["guessText"] = None
+    im["lastGuess"] = None
+    im["winner"] = None
+    im["phase"] = "clue"
+    _imp_build_order()
+
+
+def _imp_advance_turn():
+    im = state["imposter"]
+    active = _imp_active_pids()
+    im["turnIndex"] += 1
+    while (im["turnIndex"] < len(im["order"])
+           and im["order"][im["turnIndex"]] not in active):
+        im["turnIndex"] += 1
+    if im["turnIndex"] >= len(im["order"]):
+        im["phase"] = "review"
+
+
+def _imp_check_win():
+    """End the game if it's decided. Returns True if it ended.
+
+    Crew win once every imposter is out. Imposters win if every crew member is
+    eliminated (or an imposter guesses the word — handled in impGuessJudge).
+    """
+    im = state["imposter"]
+    active = _imp_active_pids()
+    imps = [pid for pid in active if im["roles"][pid] == "imposter"]
+    crew = [pid for pid in active if im["roles"][pid] == "crew"]
+    if not imps:
+        im["winner"], im["phase"] = "crew", "gameover"
+        return True
+    if not crew:
+        im["winner"], im["phase"] = "imposters", "gameover"
+        return True
+    return False
+
+
+def _imp_resolve_vote():
+    im = state["imposter"]
+    tally = {}
+    for t in im["votes"].values():
+        tally[t] = tally.get(t, 0) + 1
+    if not tally:
+        im["voteResult"] = None
+        im["phase"] = "review"
+        return
+    top = max(tally.values())
+    leaders = [pid for pid, c in tally.items() if c == top]
+    if len(leaders) != 1:
+        im["voteResult"] = {"tie": True}
+        im["phase"] = "review"
+        return
+    victim = leaders[0]
+    p = state["players"].get(victim, {})
+    im["out"][victim] = "voted"
+    im["voteResult"] = {
+        "tie": False, "pid": victim, "name": p.get("name", "?"),
+        "color": p.get("color", "#888"),
+        "wasImposter": im["roles"].get(victim) == "imposter",
+    }
+    if not _imp_check_win():
+        im["phase"] = "review"
+
+
+def do_imposter(pid, action, data, is_host=False):
+    """Imposter. Caller holds _lock. pid may be None for host actions."""
+    im = state["imposter"]
+
+    if action == "impSet":
+        if data.get("key") == "imposterCount":
+            try:
+                im["imposterCount"] = max(1, min(int(data.get("value")), 5))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "bad"}
+            broadcast()
+        return {"ok": True}
+
+    if action == "impStart":
+        if im["phase"] in ("lobby", "gameover"):
+            if len(state["players"]) < 3:
+                return {"ok": False, "error": "need_players"}
+            _imp_start_game()
+            broadcast()
+        return {"ok": True}
+
+    if action == "impLobby":
+        keep = im["imposterCount"]
+        state["imposter"] = fresh_imposter()
+        state["imposter"]["imposterCount"] = keep
+        broadcast()
+        return {"ok": True}
+
+    if action == "impEndGame":
+        if im["winner"] is None and not _imp_check_win():
+            im["winner"] = "imposters"    # host called it — imposters escaped
+        im["phase"] = "gameover"
+        broadcast()
+        return {"ok": True}
+
+    if action == "impNextRound":
+        if im["phase"] == "review":
+            _imp_fold_in_newcomers()
+            im["round"] += 1
+            im["voteResult"] = None
+            im["phase"] = "clue"
+            _imp_build_order()
+            broadcast()
+        return {"ok": True}
+
+    if action == "impVoteStart":
+        if im["phase"] == "review":
+            im["phase"] = "vote"
+            im["votes"] = {}
+            im["voteResult"] = None
+            broadcast()
+        return {"ok": True}
+
+    if action == "impVoteResolve":
+        if im["phase"] == "vote":
+            _imp_resolve_vote()
+            broadcast()
+        return {"ok": True}
+
+    if action == "impSkip":
+        if im["phase"] == "clue" and im["turnIndex"] < len(im["order"]):
+            sk = im["order"][im["turnIndex"]]
+            p = state["players"].get(sk, {})
+            im["clues"].append({
+                "round": im["round"], "pid": sk, "name": p.get("name", "?"),
+                "color": p.get("color", "#888"), "text": "(skipped)",
+            })
+            _imp_advance_turn()
+            broadcast()
+        return {"ok": True}
+
+    if action == "impGuessJudge":
+        if im["phase"] != "guess" or im["guesser"] is None:
+            return {"ok": True}
+        correct = bool(data.get("correct"))
+        gp = state["players"].get(im["guesser"], {})
+        im["lastGuess"] = {"name": gp.get("name", "?"),
+                           "text": im["guessText"], "correct": correct}
+        if correct:
+            im["winner"], im["phase"] = "imposters", "gameover"
+        else:
+            im["out"][im["guesser"]] = "guessed_wrong"
+            im["guesser"] = None
+            im["guessText"] = None
+            if not _imp_check_win():
+                im["phase"] = "review"
+        broadcast()
+        return {"ok": True}
+
+    # ---- player actions ----
+    p = state["players"].get(pid)
+    if not p:
+        return {"ok": False, "error": "not_joined"}
+    p["last_seen"] = time.time()
+    role = im["roles"].get(pid)
+    if role is None or pid in im["out"]:
+        return {"ok": False, "error": "not_in_game"}
+
+    if action == "impClue":
+        if im["phase"] != "clue":
+            return {"ok": True}
+        if (im["turnIndex"] >= len(im["order"])
+                or im["order"][im["turnIndex"]] != pid):
+            return {"ok": False, "error": "not_your_turn"}
+        text = str(data.get("text", "")).strip()[:40]
+        if not text:
+            return {"ok": False, "error": "empty"}
+        im["clues"].append({
+            "round": im["round"], "pid": pid,
+            "name": p["name"], "color": p["color"], "text": text,
+        })
+        _imp_advance_turn()
+        broadcast()
+        return {"ok": True}
+
+    if action == "impVote":
+        if im["phase"] != "vote":
+            return {"ok": True}
+        try:
+            target = int(data.get("target"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_target"}
+        if target == pid or target not in _imp_active_pids():
+            return {"ok": False, "error": "bad_target"}
+        im["votes"][pid] = target
+        # auto-resolve once every still-in player has voted; otherwise the host
+        # taps "Reveal the vote"
+        if all(q in im["votes"] for q in _imp_active_pids()):
+            _imp_resolve_vote()
+        broadcast()
+        return {"ok": True}
+
+    if action == "impGuess":
+        if im["phase"] != "review" or role != "imposter":
+            return {"ok": False, "error": "cant_guess"}
+        im["phase"] = "guess"
+        im["guesser"] = pid
+        im["guessText"] = None
+        broadcast()
+        return {"ok": True}
+
+    if action == "impGuessSubmit":
+        if im["phase"] != "guess" or im["guesser"] != pid:
+            return {"ok": False, "error": "not_guessing"}
+        im["guessText"] = str(data.get("text", "")).strip()[:40]
+        broadcast()
+        return {"ok": True}
+
+    return {"ok": False, "error": "unknown_action"}
+
+
 def do_input(data, is_host=False):
     pid, action = data.get("pid"), data.get("action")
     if action in HOST_ONLY and not is_host:
@@ -1864,6 +2247,9 @@ def do_input(data, is_host=False):
 
         if isinstance(action, str) and action.startswith("wii"):
             return do_wii(pid, action, data, is_host)
+
+        if isinstance(action, str) and action.startswith("imp"):
+            return do_imposter(pid, action, data, is_host)
 
         # start / reset are game-wide controls — the laptop screen or any
         # phone can trigger them, so they don't require a valid player id.

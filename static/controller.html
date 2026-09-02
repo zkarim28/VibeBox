@@ -397,6 +397,44 @@
   .wii-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,0.35); }
   .wii-a { left: 1.6rem; background: radial-gradient(circle at 35% 30%, #4ade80, #16a34a); }
   .wii-b { right: 1.6rem; background: radial-gradient(circle at 35% 30%, #fca5a5, #dc2626); }
+
+  /* --- Imposter --- */
+  #imposter { width: 100%; max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.9rem; padding-bottom: 2rem; }
+  .imp-role { text-align: center; border-radius: 0.9rem; padding: 1.1rem 1rem; }
+  .imp-role .cat { color: #94a3b8; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.12em; }
+  .imp-role .cat b { color: #e2e8f0; }
+  .imp-role.crew { background: #0f2a1c; border: 1px solid #1c5238; }
+  .imp-role.crew .word { font-size: 2rem; font-weight: 800; color: #4ade80; margin-top: 0.3rem; }
+  .imp-role.imp { background: #331018; border: 1px solid #7f1d2e; }
+  .imp-role.imp .word { font-size: 1.5rem; font-weight: 800; color: #fca5a5; margin-top: 0.3rem; }
+  .imp-role.imp .sub { color: #fda4af; font-size: 0.9rem; margin-top: 0.3rem; }
+  .imp-role.out { background: #1e293b; border: 1px solid #334155; }
+  .imp-role.out .word { font-size: 1.2rem; font-weight: 800; color: #94a3b8; margin-top: 0.3rem; }
+
+  .imp-turnbox { text-align: center; }
+  .imp-turnbox p { color: #94a3b8; }
+  .imp-in { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+  .imp-in input { flex: 1; font-size: 1.1rem; padding: 0.8rem 0.9rem; border-radius: 0.7rem; border: 1px solid #334155; background: #111827; color: #e2e8f0; }
+  .imp-btn { width: 100%; font-size: 1.05rem; font-weight: 800; padding: 0.9rem; border-radius: 0.75rem; border: 0; background: #38bdf8; color: #05070d; }
+  .imp-btn[disabled] { filter: grayscale(0.6) brightness(0.6); }
+  .imp-btn.ghost { background: #1e293b; color: #e2e8f0; }
+  .imp-btn.danger { background: #ef4444; color: #fff; }
+  .imp-btn.go { background: #f59e0b; color: #1a1206; }
+
+  .imp-board { display: flex; flex-direction: column; gap: 0.7rem; }
+  .imp-board .rnd { color: #64748b; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.2rem; }
+  .imp-board .c { display: flex; gap: 0.5rem; padding: 0.28rem 0; border-bottom: 1px solid #131c30; }
+  .imp-board .c .w { font-weight: 800; min-width: 5.5rem; }
+  .imp-board .c .t { font-size: 1.05rem; }
+  .imp-board .c.skip .t { color: #64748b; font-style: italic; }
+
+  .imp-cands { display: flex; flex-direction: column; gap: 0.5rem; }
+  .imp-cands button { text-align: left; padding: 0.85rem 1rem; border-radius: 0.7rem; border: 2px solid #334155; background: #1e293b; color: #e2e8f0; font-weight: 800; font-size: 1.05rem; }
+  .imp-cands button.picked { border-color: #38bdf8; background: #0c2a3a; }
+  .imp-msg { text-align: center; color: #94a3b8; }
+  .imp-big { text-align: center; }
+  .imp-big .em { font-size: 3rem; }
+  .imp-big h2 { font-size: 1.4rem; margin: 0.4rem 0; }
 </style>
 </head>
 <body>
@@ -698,6 +736,57 @@
     </div>
   </div>
 
+  <!-- ===== IMPOSTER ===== -->
+  <div id="imposter" hidden>
+    <div class="imp-role" id="imp-role" hidden>
+      <div class="cat">Category: <b id="imp-cat">…</b></div>
+      <div class="word" id="imp-word"></div>
+      <div class="sub" id="imp-role-sub" hidden></div>
+    </div>
+
+    <div class="imp-msg" id="imp-wait" hidden>Waiting for the host to start…</div>
+
+    <div class="imp-turnbox" id="imp-turn" hidden>
+      <p id="imp-turn-msg"></p>
+      <div class="imp-in" id="imp-clue-in" hidden>
+        <input id="imp-clue-text" type="text" placeholder="your clue word"
+               autocomplete="off" autocapitalize="none" maxlength="40" enterkeyhint="send">
+      </div>
+      <button class="imp-btn" id="imp-clue-send" type="button" hidden>Submit clue</button>
+    </div>
+
+    <div id="imp-review" hidden>
+      <button class="imp-btn go" id="imp-guess-start" type="button" hidden>🎯 I'll guess the word</button>
+      <p class="imp-msg" id="imp-review-msg"></p>
+    </div>
+
+    <div id="imp-vote" hidden>
+      <p class="imp-msg" style="font-weight:800;color:#e2e8f0;font-size:1.1rem">Who is the imposter?</p>
+      <div class="imp-cands" id="imp-vote-cands"></div>
+      <p class="imp-msg" id="imp-vote-msg"></p>
+    </div>
+
+    <div id="imp-guessing" class="imp-big" hidden>
+      <div class="em">🕵️</div>
+      <h2 id="imp-guessing-msg">…</h2>
+      <div class="imp-in" id="imp-guess-in" hidden>
+        <input id="imp-guess-text" type="text" placeholder="the secret word"
+               autocomplete="off" autocapitalize="none" maxlength="40" enterkeyhint="send">
+      </div>
+      <button class="imp-btn go" id="imp-guess-lock" type="button" hidden>Lock in my guess</button>
+      <p class="imp-msg" id="imp-guess-note" hidden>Now say it out loud — the host will confirm.</p>
+    </div>
+
+    <div id="imp-over" class="imp-big" hidden>
+      <div class="em" id="imp-over-em">🎭</div>
+      <h2 id="imp-over-msg">…</h2>
+      <p class="imp-msg">The word was <b id="imp-over-word" style="color:#38bdf8"></b>.</p>
+      <p class="imp-msg" id="imp-over-you"></p>
+    </div>
+
+    <div class="imp-board" id="imp-board"></div>
+  </div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -830,7 +919,8 @@ function setView(game) {
   $("blackbox").hidden = game !== "blackbox";
   $("codenames").hidden = game !== "codenames";
   $("wii").hidden = game !== "wii-sandbox";
-  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox"].includes(game);
+  $("imposter").hidden = game !== "imposter";
+  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
   if (game === "wii-sandbox") wiiEnsureLoop();
   else wiiMaybeGoHome(game);   // left Wii on the https twin? go back to :8000
@@ -1885,6 +1975,8 @@ async function pollState() {
       renderCodenames(s);
     } else if (s.game === "wii-sandbox") {
       renderWii(s);
+    } else if (s.game === "imposter") {
+      renderImposter(s);
     }
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -1899,6 +1991,140 @@ function s_poll_delay() {
   if (currentGame === "wii-sandbox") return 500;
   return 500;
 }
+
+// ================= IMPOSTER =================
+function impBoardHTML(clues) {
+  if (!clues || !clues.length) return "";
+  const rs = [...new Set(clues.map(c => c.round))].sort((a, b) => a - b);
+  return rs.map(r => {
+    const rows = clues.filter(c => c.round === r).map(c =>
+      `<div class="c${c.text === "(skipped)" ? " skip" : ""}">
+        <span class="w" style="color:${c.color}">${esc(c.name)}</span>
+        <span class="t">${esc(c.text)}</span></div>`).join("");
+    return `<div><div class="rnd">Round ${r}</div>${rows}</div>`;
+  }).join("");
+}
+
+let impVotePick = null;
+function renderImposter(s) {
+  const im = s.imposter; if (!im) return;
+  const ph = im.phase;
+  const inGame = im.youInGame;
+  const amImp = im.youAreImposter;
+  const iAmOut = im.youAreOut;
+
+  // role card
+  const roleBox = $("imp-role");
+  roleBox.hidden = !inGame || ph === "lobby" || ph === "gameover";
+  if (!roleBox.hidden) {
+    $("imp-cat").textContent = im.category || "…";
+    roleBox.className = "imp-role " + (iAmOut ? "out" : amImp ? "imp" : "crew");
+    if (iAmOut) {
+      $("imp-word").textContent = iAmOut === "voted" ? "You were voted out" : "You guessed wrong — you're out";
+      $("imp-role-sub").hidden = false;
+      $("imp-role-sub").textContent = "Sit tight and watch the clues.";
+    } else if (amImp) {
+      $("imp-word").textContent = "🎭 YOU'RE THE IMPOSTER";
+      $("imp-role-sub").hidden = false;
+      $("imp-role-sub").textContent = "Bluff a clue that fits. Work out the real word.";
+    } else {
+      $("imp-word").textContent = im.yourWord || "…";
+      $("imp-role-sub").hidden = true;
+    }
+  }
+
+  $("imp-wait").hidden = !(ph === "lobby" || !inGame && ph !== "gameover");
+  if (!inGame && ph !== "lobby" && ph !== "gameover")
+    $("imp-wait").textContent = "You're in! You'll join the next game.";
+  else $("imp-wait").textContent = "Waiting for the host to start…";
+
+  // clue turn
+  const myTurn = ph === "clue" && im.yourTurn;
+  $("imp-turn").hidden = ph !== "clue" || !inGame || iAmOut;
+  if (!$("imp-turn").hidden) {
+    $("imp-turn-msg").innerHTML = myTurn
+      ? "<b style='color:#e2e8f0;font-size:1.1rem'>Your turn — give a one-word clue</b>"
+      : `Waiting for <b style="color:${im.turnColor || '#94a3b8'}">${esc(im.turnName || "…")}</b>`;
+    $("imp-clue-in").hidden = !myTurn;
+    $("imp-clue-send").hidden = !myTurn;
+  }
+
+  // review
+  $("imp-review").hidden = ph !== "review" || !inGame;
+  if (!$("imp-review").hidden) {
+    $("imp-guess-start").hidden = !(amImp && !iAmOut);
+    $("imp-review-msg").textContent = iAmOut
+      ? "You're out — enjoy the chaos."
+      : amImp
+        ? "Think you've got the word? Tap above to guess (get it wrong and you're out)."
+        : "Talk it out. The host will start the next round or call a vote.";
+  }
+
+  // vote
+  $("imp-vote").hidden = ph !== "vote";
+  if (ph === "vote") {
+    const cands = im.candidates || [];
+    const mine = im.yourVote;
+    $("imp-vote-cands").innerHTML = iAmOut ? "" : cands.map(c =>
+      `<button type="button" data-vote="${c.pid}" class="${mine === c.pid ? "picked" : ""}" style="color:${c.color}">${esc(c.name)}</button>`).join("");
+    $("imp-vote-msg").textContent = iAmOut
+      ? "You're out — watching the vote."
+      : mine ? "Vote locked — you can change it." : "Tap the player you suspect.";
+  }
+
+  // guessing
+  $("imp-guessing").hidden = ph !== "guess";
+  if (ph === "guess") {
+    const me = im.youAreGuessing;
+    $("imp-guessing-msg").innerHTML = me
+      ? "You're guessing! Type the word, then say it out loud."
+      : `<span style="color:${im.guesserColor}">${esc(im.guesserName || "?")}</span> is guessing the word…`;
+    $("imp-guess-in").hidden = !me;
+    $("imp-guess-lock").hidden = !me;
+    $("imp-guess-note").hidden = !me || !im.guessText;
+    if (me && im.guessText && $("imp-guess-text").value === "") $("imp-guess-text").value = im.guessText;
+  }
+
+  // over
+  $("imp-over").hidden = ph !== "gameover";
+  if (ph === "gameover") {
+    const crewWon = im.winner === "crew";
+    $("imp-over-em").textContent = crewWon === amImp ? "😔" : "🎉";
+    $("imp-over-msg").textContent = crewWon ? "Crew wins!" : "Imposters win!";
+    $("imp-over-word").textContent = im.word || "?";
+    $("imp-over-you").textContent = !inGame ? "" :
+      (amImp ? "You were an imposter." : "You were crew.")
+      + (crewWon === amImp ? " Better luck next time." : " Nice.");
+  }
+
+  // clue board (shown during clue/review/vote/guess)
+  const showBoard = ["clue", "review", "vote", "guess"].includes(ph);
+  $("imp-board").hidden = !showBoard;
+  if (showBoard) $("imp-board").innerHTML = impBoardHTML(im.clues);
+}
+
+function impSendClue() {
+  const t = $("imp-clue-text").value.trim();
+  if (!t) return;
+  $("imp-clue-send").disabled = true;
+  send("impClue", { text: t }).then(() => {
+    $("imp-clue-text").value = "";
+    $("imp-clue-send").disabled = false;
+  });
+}
+$("imp-clue-send").addEventListener("click", impSendClue);
+$("imp-clue-text").addEventListener("keydown", e => { if (e.key === "Enter") impSendClue(); });
+$("imp-guess-start").addEventListener("click", () => {
+  if (confirm("Announce that you're guessing the word? Getting it wrong knocks you out.")) send("impGuess");
+});
+$("imp-guess-lock").addEventListener("click", () => {
+  const t = $("imp-guess-text").value.trim();
+  if (t) send("impGuessSubmit", { text: t });
+});
+$("imp-vote-cands").addEventListener("click", e => {
+  const b = e.target.closest("[data-vote]");
+  if (b) send("impVote", { target: +b.dataset.vote });
+});
 </script>
 </body>
 </html>
