@@ -10,3 +10,8 @@ CodeNames
 
 Taboo
 - Do I have reconnectivity features?
+
+new games:
+- Ticket To Ride 
+- Catan
+

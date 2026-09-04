@@ -96,7 +96,7 @@ HOST_ONLY = {
     "tabooEndGame", "tabooNewGame",
     "blackboxStart", "blackboxSet", "blackboxNewGame", "blackboxEndGame",
     "cnStart", "cnMode", "cnNewGame", "cnLobby", "cnAutoTeam",
-    "wiiReset", "wiiSelect", "wiiOpen", "wiiSens",
+    "wiiReset", "wiiSelect", "wiiOpen", "wiiSens", "wiiCapture",
     "impSet", "impStart", "impNextRound", "impVoteStart", "impVoteResolve",
     "impSkip", "impGuessJudge", "impEndGame", "impLobby",
 }
@@ -427,6 +427,33 @@ def fresh_wii():
         "selection": None,       # {"pid","name","item","seq"} — last menu pick
         "selSeq": 0,
         "items": WII_ITEMS,
+        "targets": None,         # Target Practice round, see _wii_targets_new()
+    }
+
+
+WII_TARGETS_PER_PLAYER = 6
+_wii_target_seq = [0]
+
+
+def _wii_targets_new():
+    """Deal a fresh Target Practice round: every phone currently past
+    calibration (stage 'ready') gets its own colour's set of targets, placed
+    at random on the shared stage. Everyone races to capture only their own."""
+    w = state["wii"]
+    pids = [pid for pid, pt in w["pointers"].items() if pt.get("stage") == "ready"]
+
+    def _mk_target():
+        _wii_target_seq[0] += 1
+        return {"id": _wii_target_seq[0],
+                "x": round(random.uniform(0.08, 0.92), 3),
+                "y": round(random.uniform(0.16, 0.92), 3),
+                "hit": False}
+
+    w["targets"] = {
+        "pids": pids,
+        "byPid": {pid: [_mk_target() for _ in range(WII_TARGETS_PER_PLAYER)] for pid in pids},
+        "doneOrder": [],          # pids, in the order they cleared their targets
+        "startedAt": time.time(),
     }
 
 
@@ -961,6 +988,21 @@ def _wii_public(for_pid=None):
     if for_pid is not None:
         pt = w["pointers"].get(for_pid)
         out["youStage"] = pt.get("stage", "verify") if pt else "verify"
+
+    tg = w.get("targets")
+    if tg:
+        def _row(pid):
+            p = state["players"].get(pid, {})
+            return {"pid": pid, "name": p.get("name", "?"), "color": p.get("color", "#888"),
+                    "targets": tg["byPid"].get(pid, []), "done": pid in tg["doneOrder"]}
+        out["targets"] = {
+            "players": [_row(pid) for pid in tg["pids"]],
+            "doneOrder": [_row(pid) for pid in tg["doneOrder"]],
+        }
+        if for_pid is not None and for_pid in tg["byPid"]:
+            mine = tg["byPid"][for_pid]
+            out["myTargets"] = {"left": sum(1 for t in mine if not t["hit"]),
+                                 "total": len(mine), "done": for_pid in tg["doneOrder"]}
     return out
 
 
@@ -1893,15 +1935,19 @@ def do_wii(pid, action, data, is_host=False):
         for pt in w["pointers"].values():
             pt["stage"] = "verify"
         w["selection"] = None
+        w["targets"] = None
         broadcast()
         return {"ok": True}
 
     if action == "wiiOpen":            # host: leave an item, back to the menu
         w["selection"] = None
+        w["targets"] = None
         broadcast()
         return {"ok": True}
 
     if action == "wiiSelect":          # host detected an A-press over an item
+        # (also (re)used by the host's in-activity "New targets" button, which
+        # posts this again with the same pid/item to deal a fresh round)
         try:
             spid = int(data.get("pid"))
         except (TypeError, ValueError):
@@ -1914,6 +1960,26 @@ def do_wii(pid, action, data, is_host=False):
                 "color": state["players"].get(spid, {}).get("color", "#888"),
                 "item": item, "seq": w["selSeq"],
             }
+            if item == "targets":
+                _wii_targets_new()
+            broadcast()
+        return {"ok": True}
+
+    if action == "wiiCapture":         # host detected an A-press over one of a player's own targets
+        try:
+            cpid = int(data.get("pid"))
+            tid = int(data.get("id"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad"}
+        tg = w.get("targets")
+        mine = tg["byPid"].get(cpid) if tg else None
+        if mine:
+            for t in mine:
+                if t["id"] == tid:
+                    t["hit"] = True
+                    break
+            if cpid not in tg["doneOrder"] and all(t["hit"] for t in mine):
+                tg["doneOrder"].append(cpid)
             broadcast()
         return {"ok": True}
 

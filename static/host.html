@@ -99,7 +99,13 @@
 
   /* --- Scattergories --- */
   #view-scat { width: min(1100px, 100%); display: flex; flex-direction: column; align-items: center; }
-  .scat-head { width: 100%; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+  /* frozen like a spreadsheet header row: the letter/timer stay put at the top
+     of the browser viewport while the category list scrolls underneath them */
+  .scat-head {
+    width: 100%; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;
+    position: sticky; top: 0; z-index: 5;
+    padding: 1.25rem 0 0.85rem; background: #0e1626; border-bottom: 1px solid #1e293b;
+  }
   .circle {
     width: clamp(72px, 9vw, 108px); aspect-ratio: 1; border-radius: 50%;
     border: 2px dashed #cbd5e1; display: grid; place-items: center;
@@ -348,6 +354,35 @@
   .wii-activity .em { font-size: clamp(3rem, 10vw, 7rem); }
   .wii-activity h2 { font-size: clamp(1.5rem, 4vw, 3rem); }
   .wii-activity p { color: #94a3b8; }
+
+  /* --- Target Practice: everyone races to pop only their own colour --- */
+  .wii-targets-view { position: absolute; inset: 0; z-index: 10; }
+  .wii-tg-hud {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 2;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+    padding: 0.6rem 0.8rem; background: linear-gradient(rgba(11,17,32,0.88), rgba(11,17,32,0));
+  }
+  .wii-tg-chip {
+    border-radius: 999px; padding: 0.25rem 0.8rem; font-weight: 800;
+    font-size: clamp(0.8rem, 1.6vw, 1rem); background: #1e293b; border: 2px solid transparent;
+  }
+  .wii-tg-chip.done { background: #14532d; color: #bbf7d0; }
+  .wii-tg-new {
+    margin-left: auto; background: #1e293b; color: #e2e8f0; border: 0; border-radius: 0.6rem;
+    padding: 0.45rem 0.9rem; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+  }
+  .wii-target-dot {
+    position: absolute; width: 6%; aspect-ratio: 1; border-radius: 50%;
+    transform: translate(-50%, -50%); background: currentColor;
+    box-shadow: 0 0 0 4px rgba(255,255,255,0.18), 0 0 18px currentColor;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  .wii-target-dot.hit { opacity: 0; transform: translate(-50%, -50%) scale(0.15); }
+  .wii-tg-finish {
+    position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%);
+    background: rgba(11,17,32,0.9); border-radius: 0.8rem; padding: 0.5rem 1rem;
+    font-size: clamp(0.85rem, 1.8vw, 1.1rem); font-weight: 700; text-align: center;
+  }
 
   .wii-lobby { width: 100%; display: flex; flex-direction: column; align-items: center; margin-top: 1.25rem; }
   .wii-hint { color: #94a3b8; margin: 1rem 0 0.5rem; font-size: clamp(1rem, 2.2vw, 1.3rem); }
@@ -731,6 +766,10 @@
     <div class="wii-stage" id="wii-stage">
       <div class="wii-menu" id="wii-menu"></div>
       <div class="wii-activity" id="wii-activity" hidden></div>
+      <div class="wii-targets-view" id="wii-targets-view" hidden>
+        <div class="wii-tg-hud" id="wii-tg-hud"></div>
+        <!-- target dots injected here -->
+      </div>
       <!-- cursors injected here -->
     </div>
 
@@ -1463,14 +1502,17 @@ function renderWii(s) {
 
   // activity overlay
   const sel = w.selection;
-  $("wii-activity").hidden = !sel;
-  if (sel) {
+  const inTargets = sel && sel.item === "targets";
+  $("wii-activity").hidden = !sel || inTargets;
+  $("wii-targets-view").hidden = !inTargets;
+  if (sel && !inTargets) {
     const it = wiiItems.find(x => x.id === sel.item) || {};
     $("wii-activity").innerHTML =
       `<div class="em">${it.em || it.emoji || "🎮"}</div>
        <h2 style="color:${sel.color}">${esc(sel.name)} — ${esc(it.name || sel.item)}</h2>
        <p>🚧 Sandbox activity coming soon. Aim back and press <b>B</b> to return to the menu.</p>`;
   }
+  if (inTargets) renderWiiTargets(w.targets, sel);
 
   // ---- pointers ----
   // keep one server-time -> wall-clock anchor; snap on a big jump, else ease
@@ -1503,7 +1545,8 @@ function renderWii(s) {
     while (c.hist.length > 2 && c.hist[0][0] < cut) c.hist.shift();
     c.tx = p.x; c.ty = p.y;        // latest raw point — fallback if no server clock
     c.el.classList.toggle("press", p.a);
-    // A-press edge -> select whatever tile the cursor is over
+    // A-press edge -> select whatever tile the cursor is over, or (inside
+    // Target Practice) pop one of this player's own targets under the cursor
     if (p.aSeq !== c.aSeq) {
       c.aSeq = p.aSeq;
       if (!sel) {
@@ -1512,6 +1555,9 @@ function renderWii(s) {
           tile.classList.add("flash"); setTimeout(() => tile.classList.remove("flash"), 500);
           post({ action: "wiiSelect", pid: p.pid, item: tile.dataset.item });
         }
+      } else if (inTargets) {
+        const hit = wiiTargetAt(w.targets, p.pid, c.sx, c.sy);
+        if (hit) post({ action: "wiiCapture", pid: p.pid, id: hit.id });
       }
     }
     // B-press -> leave the activity (only the player who is "in" it)
@@ -1534,6 +1580,77 @@ function wiiTileAt(x, y) {
     if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) return t;
   }
   return null;
+}
+
+// Generous hit radius (in pixels) — this is aimed with a phone gyroscope, not
+// a mouse, so it should feel forgiving like an actual Wii-style target game.
+const WII_TARGET_HIT_FRAC = 0.055;
+
+function wiiTargetAt(tg, pid, x, y) {
+  if (!tg) return null;
+  const row = (tg.players || []).find(pl => pl.pid === pid);
+  if (!row) return null;
+  const stage = $("wii-stage").getBoundingClientRect();
+  const hitPx = WII_TARGET_HIT_FRAC * stage.width;
+  let best = null, bestD = Infinity;
+  for (const t of row.targets) {
+    if (t.hit) continue;
+    const dx = (x - t.x) * stage.width, dy = (y - t.y) * stage.height;
+    const d = Math.hypot(dx, dy);
+    if (d <= hitPx && d < bestD) { best = t; bestD = d; }
+  }
+  return best;
+}
+
+let wiiTgDotSig = "";
+function renderWiiTargets(tg, sel) {
+  const view = $("wii-targets-view");
+  if (!tg) { view.querySelectorAll(".wii-target-dot, .wii-tg-finish").forEach(el => el.remove()); return; }
+
+  $("wii-tg-hud").innerHTML = (tg.players || []).map(p => {
+    const label = p.done ? "✅ done!" : `${p.targets.filter(t => !t.hit).length} left`;
+    return `<span class="wii-tg-chip ${p.done ? "done" : ""}" style="color:${p.color};border-color:${p.color}">
+      ${esc(p.name)} · ${label}</span>`;
+  }).join("") + `<button class="wii-tg-new" id="wii-tg-new" type="button">🔄 New targets</button>`;
+  const newBtn = $("wii-tg-new");
+  if (newBtn) newBtn.addEventListener("click", () =>
+    post({ action: "wiiSelect", pid: sel.pid, item: "targets" }));
+
+  // rebuild the dots only when the set of targets actually changes shape —
+  // per-poll updates below just toggle .hit so the pop animation can play
+  const dotSig = (tg.players || []).map(p => p.pid + ":" + p.targets.map(t => t.id).join(",")).join("|");
+  if (dotSig !== wiiTgDotSig) {
+    wiiTgDotSig = dotSig;
+    view.querySelectorAll(".wii-target-dot").forEach(el => el.remove());
+    for (const p of tg.players || []) {
+      for (const t of p.targets) {
+        const el = document.createElement("div");
+        el.className = "wii-target-dot";
+        el.dataset.pid = p.pid; el.dataset.tid = t.id;
+        el.style.color = p.color;
+        el.style.left = (t.x * 100) + "%"; el.style.top = (t.y * 100) + "%";
+        view.appendChild(el);
+      }
+    }
+  }
+  view.querySelectorAll(".wii-target-dot").forEach(el => {
+    const p = (tg.players || []).find(pl => pl.pid === +el.dataset.pid);
+    const t = p && p.targets.find(x => x.id === +el.dataset.tid);
+    el.classList.toggle("hit", !!(t && t.hit));
+  });
+
+  let finish = view.querySelector(".wii-tg-finish");
+  if (tg.doneOrder && tg.doneOrder.length) {
+    if (!finish) {
+      finish = document.createElement("div");
+      finish.className = "wii-tg-finish";
+      view.appendChild(finish);
+    }
+    finish.innerHTML = "🏆 " + tg.doneOrder.map((p, i) =>
+      `<span style="color:${p.color}">${i + 1}. ${esc(p.name)}</span>`).join("  ·  ");
+  } else if (finish) {
+    finish.remove();
+  }
 }
 
 function wiiStartRAF() {
