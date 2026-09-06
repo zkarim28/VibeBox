@@ -390,6 +390,36 @@
   .wii-players span { background: #1e293b; border-radius: 999px; padding: 0.25rem 0.85rem; font-weight: 700; }
   .wii-players span.rdy { background: #14532d; color: #bbf7d0; }
 
+  /* --- Mafia --- */
+  #view-mafia { width: min(1000px, 100%); display: flex; flex-direction: column; align-items: center; }
+  #view-mafia h1 { text-align: center; }
+  .mf-phase { text-align: center; margin: 0.3rem 0 1rem; }
+  .mf-phase .big { font-size: clamp(1.8rem, 5.5vw, 3.2rem); font-weight: 800; }
+  .mf-phase .sub { color: #94a3b8; font-size: 1.05rem; margin-top: 0.3rem; }
+  .mf-announce { text-align: center; font-size: clamp(1.3rem, 3.6vw, 2rem); font-weight: 800;
+    background: #131c30; border-radius: 0.8rem; padding: 1rem 1.4rem; margin: 0.6rem 0 1.2rem; max-width: 640px; }
+  .mf-announce.good { color: #4ade80; } .mf-announce.bad { color: #f87171; } .mf-announce.mut { color: #cbd5e1; }
+  .mf-square { width: 100%; max-width: 720px; display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-bottom: 1rem; }
+  .mf-p { background: #1e293b; border-radius: 0.7rem; padding: 0.45rem 0.9rem; font-weight: 800; display: flex; gap: 0.5rem; align-items: baseline; }
+  .mf-p.dead { opacity: 0.55; }
+  .mf-p.dead .nm { text-decoration: line-through; }
+  .mf-p .role { font-size: 0.8rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+  .mf-p .role.mafia { color: #fca5a5; }
+  .mf-count { color: #94a3b8; margin-bottom: 1rem; }
+  .mf-mod { color: #cbd5e1; font-size: 1rem; margin-bottom: 0.4rem; }
+  .mf-mod b { color: #fbbf24; }
+  .mf-controls { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; margin-top: 1rem; }
+  .mf-reveal { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 0.35rem; margin: 1rem 0; }
+  .mf-reveal .row { display: flex; justify-content: space-between; padding: 0.45rem 0.8rem; background: #131c30; border-radius: 0.5rem; }
+  .mf-reveal .row.mafia { background: #3a1420; }
+  .mf-reveal .row.dead .nm { text-decoration: line-through; opacity: 0.6; }
+  .mf-reveal .tag { color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+  .mf-reveal .tag.mafia { color: #fca5a5; }
+  .mf-mods { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin: 0.75rem 0 0.25rem; }
+  .mf-mods button { padding: 0.5rem 0.9rem; border-radius: 0.6rem; border: 2px solid #334155;
+    background: #1e293b; color: #e2e8f0; font-weight: 800; font-size: 0.95rem; cursor: pointer; }
+  .mf-mods button.on { border-color: #fbbf24; background: #3a2f10; color: #fde68a; }
+
   /* --- Imposter --- */
   #view-imposter { width: min(1000px, 100%); display: flex; flex-direction: column; align-items: center; }
   #view-imposter h1 { text-align: center; }
@@ -785,6 +815,78 @@
     </div>
   </div>
 
+  <!-- ============ MAFIA ============ -->
+  <div id="view-mafia" hidden>
+    <h1>Mafia<span></span></h1>
+
+    <!-- lobby -->
+    <div id="mf-lobby" style="display:flex;flex-direction:column;align-items:center;width:100%">
+      <div class="join">
+        <div class="label">On your phone, go to</div>
+        <div class="url" data-join-url>…</div>
+        <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
+        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+      </div>
+      <div class="settings" style="max-width:520px">
+        <div class="setting">
+          <span class="lbl">Mafia</span>
+          <span class="num">
+            <button class="btn ghost" data-mf-dn="mafia" type="button">−</button>
+            <b id="mf-n-mafia" style="font-size:1.4rem;min-width:1.5rem;text-align:center;display:inline-block">1</b>
+            <button class="btn ghost" data-mf-up="mafia" type="button">+</button>
+          </span>
+        </div>
+        <div class="setting">
+          <span class="lbl">Sheriffs</span>
+          <span class="num">
+            <button class="btn ghost" data-mf-dn="sheriff" type="button">−</button>
+            <b id="mf-n-sheriff" style="font-size:1.4rem;min-width:1.5rem;text-align:center;display:inline-block">1</b>
+            <button class="btn ghost" data-mf-up="sheriff" type="button">+</button>
+          </span>
+        </div>
+        <div class="setting">
+          <span class="lbl">Doctors</span>
+          <span class="num">
+            <button class="btn ghost" data-mf-dn="doctor" type="button">−</button>
+            <b id="mf-n-doctor" style="font-size:1.4rem;min-width:1.5rem;text-align:center;display:inline-block">1</b>
+            <button class="btn ghost" data-mf-up="doctor" type="button">+</button>
+          </span>
+        </div>
+      </div>
+      <p class="mf-count" id="mf-role-summary">1 Mafia · 1 Sheriff · 1 Doctor · rest Civilians</p>
+      <p class="mf-mod" style="margin-top:0.5rem">Pick the <b>moderator</b> (they run the game, no card):</p>
+      <div class="mf-mods" id="mf-mod-pick"></div>
+      <p class="mf-count" id="mf-lobby-count" style="margin:1rem 0">No players yet.</p>
+      <button class="btn" id="mf-start" type="button">Deal cards &amp; start 🃏</button>
+      <p class="mf-count" id="mf-start-err" role="alert" style="color:#f87171"></p>
+    </div>
+
+    <!-- reveal / night / day share one board -->
+    <div id="mf-play" hidden style="display:flex;flex-direction:column;align-items:center;width:100%">
+      <div class="mf-phase">
+        <div class="big" id="mf-phase-big">Night 1</div>
+        <div class="sub" id="mf-phase-sub"></div>
+      </div>
+      <div class="mf-announce" id="mf-announce" hidden></div>
+      <p class="mf-mod" id="mf-mod-line"></p>
+      <p class="mf-count" id="mf-alive-line"></p>
+      <div class="mf-square" id="mf-square"></div>
+    </div>
+
+    <!-- game over -->
+    <div id="mf-over" hidden style="display:flex;flex-direction:column;align-items:center;width:100%">
+      <div class="mf-phase">
+        <div class="big" id="mf-over-title">…</div>
+        <div class="sub" id="mf-over-sub"></div>
+      </div>
+      <div class="mf-reveal" id="mf-reveal"></div>
+      <div class="mf-controls">
+        <button class="btn" id="mf-again" type="button">New game</button>
+        <button class="btn ghost" id="mf-lobbybtn" type="button">Back to lobby</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ IMPOSTER ============ -->
   <div id="view-imposter" hidden>
     <h1>Imposter<span></span></h1>
@@ -942,7 +1044,7 @@ let leaving = false;
 let lastState = null;
 function render(s) {
   lastState = s;
-  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter"].includes(s.game)) {
+  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia"].includes(s.game)) {
     location.href = "/"; return;
   }
   $("view-tap").hidden = s.game !== "tap-race";
@@ -952,6 +1054,7 @@ function render(s) {
   $("view-codenames").hidden = s.game !== "codenames";
   $("view-wii").hidden = s.game !== "wii-sandbox";
   $("view-imposter").hidden = s.game !== "imposter";
+  $("view-mafia").hidden = s.game !== "mafia";
   if (s.game === "tap-race") renderTap(s);
   else if (s.game === "scattergories") renderScat(s);
   else if (s.game === "taboo") renderTaboo(s);
@@ -959,6 +1062,7 @@ function render(s) {
   else if (s.game === "codenames") renderCodenames(s);
   else if (s.game === "wii-sandbox") renderWii(s);
   else if (s.game === "imposter") renderImposter(s);
+  else if (s.game === "mafia") renderMafia(s);
 }
 
 // ================= TAP RACE =================
@@ -1798,6 +1902,123 @@ $("imp-guess-no").addEventListener("click", () => post({ action: "impGuessJudge"
 $("imp-again").addEventListener("click", () => post({ action: "impStart" }));
 $("imp-lobbybtn").addEventListener("click", () => post({ action: "impLobby" }));
 
+// ================= MAFIA =================
+const MF_ROLE = { mafia: "Mafia", sheriff: "Sheriff", doctor: "Doctor", civilian: "Civilian" };
+function mfSquareHTML(roster) {
+  return roster.filter(r => r.inGame).map(r => {
+    const dead = r.alive === false;
+    const role = r.role ? `<span class="role ${r.role}">${MF_ROLE[r.role] || r.role}</span>` : "";
+    return `<span class="mf-p${dead ? " dead" : ""}"><span class="nm" style="color:${r.color}">${esc(r.name)}</span>${role}</span>`;
+  }).join("");
+}
+
+function renderMafia(s) {
+  const mf = s.mafia; if (!mf) return;
+  const ph = mf.phase;
+  const view = ph === "lobby" ? "lobby" : ph === "gameover" ? "over" : "play";
+  $("mf-lobby").hidden = view !== "lobby";
+  $("mf-play").hidden = view !== "play";
+  $("mf-over").hidden = view !== "over";
+
+  // ---- lobby ----
+  if (view === "lobby") {
+    const c = mf.counts;
+    ["mafia", "sheriff", "doctor"].forEach(k => $("mf-n-" + k).textContent = c[k]);
+    const carded = Math.max(0, s.players.length - (mf.moderatorPid ? 1 : 0));
+    const civ = Math.max(0, carded - c.mafia - c.sheriff - c.doctor);
+    $("mf-role-summary").textContent =
+      `${c.mafia} Mafia · ${c.sheriff} Sheriff${c.sheriff === 1 ? "" : "s"} · ${c.doctor} Doctor${c.doctor === 1 ? "" : "s"} · ${civ} Civilian${civ === 1 ? "" : "s"}`;
+    $("mf-mod-pick").innerHTML = s.players.map(p =>
+      `<button type="button" data-mfmod="${p.pid}" class="${mf.moderatorPid === p.pid ? "on" : ""}" style="color:${p.color}">${esc(p.name)}${mf.moderatorPid === p.pid ? " ★" : ""}</button>`).join("")
+      || '<span class="mf-count">no players yet</span>';
+    const n = s.players.length;
+    $("mf-lobby-count").textContent = n
+      ? `${n} connected — ${carded} will get a card`
+      : "No players yet — have them scan the code.";
+    let err = "";
+    if (!mf.moderatorPid) err = "Pick a moderator to start.";
+    else if (carded < 4) err = "Need at least 4 card-holding players (5 people total).";
+    else if (c.mafia + c.sheriff + c.doctor > carded) err = "More special roles than players.";
+    else if (c.mafia * 2 >= carded) err = "Too many Mafia — the town needs a majority.";
+    $("mf-start-err").textContent = err;
+    $("mf-start").disabled = !!err;
+    return;
+  }
+
+  // ---- game over ----
+  if (view === "over") {
+    $("mf-over-title").textContent = mf.winner === "town" ? "🎉 The Town wins!"
+      : mf.winner === "mafia" ? "🔪 The Mafia win!" : "Game ended";
+    $("mf-over-sub").textContent = mf.winner === "town" ? "Every Mafia member was found."
+      : mf.winner === "mafia" ? "The Mafia reached the town." : "";
+    $("mf-reveal").innerHTML = [...mf.roster].filter(r => r.inGame)
+      .sort((a, b) => (a.role === "mafia" ? 0 : 1) - (b.role === "mafia" ? 0 : 1))
+      .map(r => `<div class="row ${r.role === "mafia" ? "mafia" : ""} ${r.alive === false ? "dead" : ""}">
+        <span class="nm" style="color:${r.color}">${esc(r.name)}</span>
+        <span class="tag ${r.role === "mafia" ? "mafia" : ""}">${MF_ROLE[r.role] || r.role}${r.alive === false ? " · out" : ""}</span></div>`).join("");
+    return;
+  }
+
+  // ---- reveal / night / day ----
+  const mod = mf.moderatorName ? `<b>${esc(mf.moderatorName)}</b>` : "the moderator";
+  $("mf-mod-line").innerHTML = `Moderator: ${mod}`;
+  $("mf-alive-line").textContent = `${mf.aliveCount} of ${mf.cardedCount} still in the game`;
+  $("mf-square").innerHTML = mfSquareHTML(mf.roster);
+  const ann = $("mf-announce");
+
+  if (ph === "reveal") {
+    $("mf-phase-big").textContent = "Cards dealt";
+    $("mf-phase-sub").textContent = "Everyone: check your phone, remember your role, then hide it.";
+    ann.hidden = false; ann.className = "mf-announce mut";
+    ann.textContent = `${mf.moderatorName || "The moderator"} taps “Begin Night 1” when the room is ready.`;
+    return;
+  }
+
+  if (ph === "night") {
+    $("mf-phase-big").textContent = "🌙 Night " + mf.round;
+    $("mf-phase-sub").textContent = "Eyes closed. The moderator is running the night.";
+    ann.hidden = true;
+    return;
+  }
+
+  // day
+  $("mf-phase-big").textContent = "☀ Day " + mf.round;
+  ann.hidden = false;
+  if (mf.voteResult) {
+    const vr = mf.voteResult;
+    $("mf-phase-sub").textContent = "The moderator will begin the next night.";
+    if (vr.nolynch) { ann.className = "mf-announce mut"; ann.textContent = "No lynch — nobody was eliminated."; }
+    else if (vr.tie) { ann.className = "mf-announce mut"; ann.textContent = "The vote tied — nobody was eliminated."; }
+    else {
+      const wasMafia = vr.role === "mafia";
+      ann.className = "mf-announce " + (wasMafia ? "good" : "bad");
+      ann.textContent = `${vr.name} was lynched — they were ${wasMafia ? "MAFIA! 🔪" : "a " + (MF_ROLE[vr.role] || vr.role) + "."}`;
+    }
+  } else {
+    $("mf-phase-sub").textContent = `Discuss, then vote — ${mf.votesIn || 0} / ${mf.votersNeeded || 0} votes in.`;
+    const ln = mf.lastNight;
+    if (ln && ln.names.length) {
+      ann.className = "mf-announce bad";
+      ann.textContent = ln.names.map((nm, i) =>
+        `${nm} was killed in the night — a ${MF_ROLE[ln.roles[i]] || ln.roles[i]}.`).join("  ");
+    } else {
+      ann.className = "mf-announce good";
+      ann.textContent = "Nobody died in the night.";
+    }
+  }
+}
+$("mf-mod-pick").addEventListener("click", e => {
+  const b = e.target.closest("[data-mfmod]");
+  if (b) post({ action: "mafiaSetModerator", pid: +b.dataset.mfmod });
+});
+document.querySelectorAll("[data-mf-dn]").forEach(b => b.addEventListener("click", () =>
+  post({ action: "mafiaSet", key: b.dataset.mfDn, value: (lastState.mafia.counts[b.dataset.mfDn] - 1) })));
+document.querySelectorAll("[data-mf-up]").forEach(b => b.addEventListener("click", () =>
+  post({ action: "mafiaSet", key: b.dataset.mfUp, value: (lastState.mafia.counts[b.dataset.mfUp] + 1) })));
+$("mf-start").addEventListener("click", () => post({ action: "mafiaStart" }));
+$("mf-again").addEventListener("click", () => post({ action: "mafiaStart" }));
+$("mf-lobbybtn").addEventListener("click", () => post({ action: "mafiaLobby" }));
+
 // ---- live updates: poll /state (works through any proxy / tunnel; SSE didn't) ----
 function hostPollDelay() {
   const s = lastState;
@@ -1805,6 +2026,7 @@ function hostPollDelay() {
   if (s && s.game === "taboo" && s.taboo && (s.taboo.phase === "turn" || s.taboo.phase === "ready")) return 300;
   if (s && s.game === "blackbox" && s.blackbox && s.blackbox.phase === "judge") return 300;
   if (s && s.game === "imposter") return 500;
+  if (s && s.game === "mafia") return 500;
   return 550;
 }
 async function pollHost() {

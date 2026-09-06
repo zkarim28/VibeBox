@@ -482,6 +482,41 @@
   .imp-big { text-align: center; }
   .imp-big .em { font-size: 3rem; }
   .imp-big h2 { font-size: 1.4rem; margin: 0.4rem 0; }
+
+  /* --- Mafia --- */
+  #mafia { width: 100%; max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.9rem; padding-bottom: 2rem; }
+  .mf-role { text-align: center; border-radius: 0.9rem; padding: 1.1rem 1rem; }
+  .mf-role .em { font-size: 2.4rem; }
+  .mf-role .word { font-size: 1.5rem; font-weight: 800; margin-top: 0.2rem; }
+  .mf-role .sub { font-size: 0.92rem; margin-top: 0.35rem; opacity: 0.92; }
+  .mf-role.mafia { background: #331018; border: 1px solid #7f1d2e; }
+  .mf-role.mafia .word { color: #fca5a5; }
+  .mf-role.sheriff { background: #10233a; border: 1px solid #1e4f7a; }
+  .mf-role.sheriff .word { color: #7dd3fc; }
+  .mf-role.doctor { background: #0f2a1c; border: 1px solid #1c5238; }
+  .mf-role.doctor .word { color: #6ee7b7; }
+  .mf-role.civilian { background: #1e293b; border: 1px solid #334155; }
+  .mf-role.civilian .word { color: #e2e8f0; }
+  .mf-role.dead { background: #17151c; border: 1px solid #3f2937; }
+  .mf-role.dead .word { color: #94a3b8; }
+  .mf-role .team { margin-top: 0.5rem; font-weight: 800; color: #fecaca; font-size: 0.95rem; }
+  .mf-msg { text-align: center; color: #94a3b8; }
+  .mf-msg.big { color: #e2e8f0; font-weight: 800; font-size: 1.1rem; }
+  .mf-card { background: #131c30; border-radius: 0.8rem; padding: 0.9rem 1rem; }
+  .mf-card h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.5rem; }
+  .mf-list { display: flex; flex-direction: column; gap: 0.45rem; }
+  .mf-list button { text-align: left; padding: 0.8rem 1rem; border-radius: 0.7rem; border: 2px solid #334155;
+    background: #1e293b; color: #e2e8f0; font-weight: 800; font-size: 1.02rem; display: flex; justify-content: space-between; gap: 0.5rem; }
+  .mf-list button.picked { border-color: #fbbf24; background: #3a2f10; }
+  .mf-list button .rl { font-size: 0.78rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
+  .mf-list button .rl.mafia { color: #fca5a5; }
+  .mf-btn { width: 100%; font-size: 1.05rem; font-weight: 800; padding: 0.9rem; border-radius: 0.75rem; border: 0; background: #38bdf8; color: #05070d; }
+  .mf-btn[disabled] { filter: grayscale(0.6) brightness(0.6); }
+  .mf-btn.ghost { background: #1e293b; color: #e2e8f0; }
+  .mf-btn.go { background: #f59e0b; color: #1a1206; }
+  .mf-btn.danger { background: #ef4444; color: #fff; }
+  .mf-deaths { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.9rem; color: #cbd5e1; }
+  .mf-deaths .d b { color: #fca5a5; }
 </style>
 </head>
 <body>
@@ -841,6 +876,63 @@
     <div class="imp-board" id="imp-board"></div>
   </div>
 
+  <!-- ===== MAFIA ===== -->
+  <div id="mafia" hidden>
+    <div class="mf-role" id="mf-role" hidden>
+      <div class="em" id="mf-role-em">🃏</div>
+      <div class="word" id="mf-role-word">…</div>
+      <div class="sub" id="mf-role-sub" hidden></div>
+      <div class="team" id="mf-role-team" hidden></div>
+    </div>
+
+    <div class="mf-msg" id="mf-wait" hidden>Waiting for the moderator to start…</div>
+
+    <!-- moderator panel -->
+    <div id="mf-mod" hidden>
+      <div class="mf-msg big" id="mf-mod-title">Moderator</div>
+      <p class="mf-msg" id="mf-mod-msg"></p>
+      <div class="mf-card" id="mf-mod-listwrap" hidden>
+        <h3 id="mf-mod-listhead">Players</h3>
+        <div class="mf-list" id="mf-mod-list"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.6rem">
+        <button class="mf-btn go" id="mf-begin-night" type="button" hidden>Begin Night 1 🌙</button>
+        <button class="mf-btn ghost" id="mf-night-none" type="button" hidden>Nobody died (saved / no kill)</button>
+        <button class="mf-btn" id="mf-reveal-vote" type="button" hidden>Reveal the vote</button>
+        <button class="mf-btn ghost" id="mf-no-lynch" type="button" hidden>No lynch today</button>
+        <button class="mf-btn go" id="mf-next-night" type="button" hidden>Begin the next night 🌙</button>
+        <button class="mf-btn danger" id="mf-end" type="button" hidden>End game &amp; reveal</button>
+      </div>
+    </div>
+
+    <!-- night, for a carded player -->
+    <div class="mf-card" id="mf-night-you" hidden>
+      <p class="mf-msg big" id="mf-night-head">🌙 Night falls — close your eyes.</p>
+      <p class="mf-msg" id="mf-night-note"></p>
+    </div>
+
+    <!-- day vote, for a carded player -->
+    <div id="mf-vote" hidden>
+      <p class="mf-msg big">Who do you vote to eliminate?</p>
+      <div class="mf-list" id="mf-vote-cands"></div>
+      <button class="mf-btn ghost" id="mf-abstain" type="button" style="margin-top:0.5rem">Abstain</button>
+      <p class="mf-msg" id="mf-vote-msg"></p>
+    </div>
+
+    <div class="mf-msg" id="mf-result" hidden></div>
+
+    <div class="mf-card" id="mf-deaths-wrap" hidden>
+      <h3>Graveyard</h3>
+      <div class="mf-deaths" id="mf-deaths"></div>
+    </div>
+
+    <div id="mf-over" class="imp-big" hidden>
+      <div class="em" id="mf-over-em">🃏</div>
+      <h2 id="mf-over-msg">…</h2>
+      <p class="mf-msg" id="mf-over-you"></p>
+    </div>
+  </div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -974,7 +1066,8 @@ function setView(game) {
   $("codenames").hidden = game !== "codenames";
   $("wii").hidden = game !== "wii-sandbox";
   $("imposter").hidden = game !== "imposter";
-  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter"].includes(game);
+  $("mafia").hidden = game !== "mafia";
+  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
   if (game === "wii-sandbox") wiiEnsureLoop();
   else wiiMaybeGoHome(game);   // left Wii on the https twin? go back to :8000
@@ -2094,6 +2187,8 @@ async function pollState() {
       renderWii(s);
     } else if (s.game === "imposter") {
       renderImposter(s);
+    } else if (s.game === "mafia") {
+      renderMafia(s);
     }
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -2106,6 +2201,7 @@ function s_poll_delay() {
   if (currentGame === "blackbox" && bbPhase === "judge") return 350;
   if (currentGame === "codenames") return 400;
   if (currentGame === "wii-sandbox") return 500;
+  if (currentGame === "mafia") return 500;
   return 500;
 }
 
@@ -2242,6 +2338,187 @@ $("imp-vote-cands").addEventListener("click", e => {
   const b = e.target.closest("[data-vote]");
   if (b) send("impVote", { target: +b.dataset.vote });
 });
+
+// ================= MAFIA =================
+const MF_ROLE = { mafia: "Mafia", sheriff: "Sheriff", doctor: "Doctor", civilian: "Civilian" };
+const MF_ROLE_INFO = {
+  mafia:    { em: "🔪", word: "You are MAFIA",       sub: "Each night, agree with your team on one player to eliminate." },
+  sheriff:  { em: "🕵", word: "You are the SHERIFF", sub: "Each night, point at someone — the moderator signals if they're Mafia." },
+  doctor:   { em: "💉", word: "You are the DOCTOR",  sub: "Each night, point at one player to save (it can be you)." },
+  civilian: { em: "👤", word: "You are a CIVILIAN",  sub: "No night action — use your vote by day to root out the Mafia." },
+};
+
+function mfPeople(list, pickedId, attr) {
+  return (list || []).map(p => {
+    const rl = p.role ? `<span class="rl ${p.role}">${MF_ROLE[p.role] || p.role}</span>` : "";
+    return `<button type="button" data-${attr}="${p.pid}" class="${pickedId === p.pid ? "picked" : ""}" style="color:${p.color}"><span>${esc(p.name)}</span>${rl}</button>`;
+  }).join("");
+}
+
+function mfResultText(vr) {
+  if (!vr) return "";
+  if (vr.nolynch) return "No lynch — nobody was eliminated.";
+  if (vr.tie) return "The vote tied — nobody was eliminated.";
+  return `${vr.name} was eliminated — they were ${vr.role === "mafia" ? "MAFIA." : "a " + (MF_ROLE[vr.role] || vr.role) + "."}`;
+}
+
+function renderMafia(s) {
+  const mf = s.mafia; if (!mf) return;
+  const ph = mf.phase;
+  const inGame = mf.youInGame, isMod = mf.youModerator;
+  const alive = mf.youAlive, role = mf.youRole;
+
+  // role card — carded players, during play
+  const showCard = inGame && !isMod && ["reveal", "night", "day"].includes(ph);
+  $("mf-role").hidden = !showCard;
+  if (showCard) {
+    const info = MF_ROLE_INFO[role] || MF_ROLE_INFO.civilian;
+    const box = $("mf-role");
+    box.className = "mf-role " + (alive ? role : "dead");
+    $("mf-role-sub").hidden = false;
+    if (!alive) {
+      $("mf-role-em").textContent = "⚰️";
+      $("mf-role-word").textContent = `You're out — you were ${MF_ROLE[role] || role}`;
+      $("mf-role-sub").textContent = "Stay quiet and watch it play out.";
+      $("mf-role-team").hidden = true;
+    } else {
+      $("mf-role-em").textContent = info.em;
+      $("mf-role-word").textContent = info.word;
+      $("mf-role-sub").textContent = info.sub;
+      if (role === "mafia") {
+        const team = mf.mafiaTeam || [];
+        $("mf-role-team").hidden = false;
+        $("mf-role-team").textContent = team.length
+          ? "With you: " + team.join(", ") : "You're the only Mafia.";
+      } else {
+        $("mf-role-team").hidden = true;
+      }
+    }
+  }
+
+  // waiting / spectator
+  const spectator = !inGame && !isMod;
+  $("mf-wait").hidden = !(ph === "lobby" || (spectator && ph !== "gameover"));
+  if (isMod && ph === "lobby")
+    $("mf-wait").textContent = "You're the moderator — set the roles and start on the big screen.";
+  else if (spectator && ph !== "lobby")
+    $("mf-wait").textContent = "A game's in progress — you'll be dealt in next round.";
+  else
+    $("mf-wait").textContent = "Waiting for the moderator to start…";
+
+  // moderator panel
+  $("mf-mod").hidden = !isMod || ph === "lobby" || ph === "gameover";
+  if (!$("mf-mod").hidden) {
+    ["mf-begin-night", "mf-night-none", "mf-reveal-vote", "mf-no-lynch", "mf-next-night"]
+      .forEach(id => $(id).hidden = true);
+    $("mf-end").hidden = false;
+    const listWrap = $("mf-mod-listwrap");
+    listWrap.hidden = true;
+
+    if (ph === "reveal") {
+      $("mf-mod-msg").textContent = "Everyone's checked their card. Have the town close their eyes, then begin.";
+      $("mf-begin-night").hidden = false;
+      $("mf-begin-night").textContent = "Begin Night 1 🌙";
+      listWrap.hidden = false;
+      $("mf-mod-listhead").textContent = "Everyone's role (only you see this)";
+      $("mf-mod-list").innerHTML = mf.roster.filter(r => r.inGame).map(r =>
+        `<button type="button" disabled style="color:${r.color}"><span>${esc(r.name)}</span><span class="rl ${r.role}">${MF_ROLE[r.role] || r.role}</span></button>`).join("");
+    } else if (ph === "night") {
+      $("mf-mod-msg").textContent = "Wake the Mafia → they choose. Then the Sheriff (nod/shake), then the Doctor. Tap the Mafia's victim:";
+      listWrap.hidden = false;
+      $("mf-mod-listhead").textContent = "Still alive";
+      $("mf-mod-list").innerHTML = mfPeople(mf.nightTargets, null, "mfkill");
+      $("mf-night-none").hidden = false;
+    } else if (ph === "day") {
+      if (mf.voteResult) {
+        $("mf-mod-msg").textContent = mfResultText(mf.voteResult);
+        $("mf-next-night").hidden = false;
+        $("mf-next-night").textContent = "Begin Night " + (mf.round + 1) + " 🌙";
+      } else {
+        $("mf-mod-msg").textContent = `Town is voting — ${mf.votesIn || 0} / ${mf.votersNeeded || 0} in.`;
+        $("mf-reveal-vote").hidden = false;
+        $("mf-no-lynch").hidden = false;
+        listWrap.hidden = false;
+        $("mf-mod-listhead").textContent = "Override — eliminate someone directly";
+        $("mf-mod-list").innerHTML = mfPeople(mf.nightTargets, null, "mflynch");
+      }
+    }
+  }
+
+  // night — carded player
+  const showNight = inGame && !isMod && ph === "night";
+  $("mf-night-you").hidden = !showNight;
+  if (showNight) {
+    const map = {
+      mafia:   ["🔪 Mafia — wake up.", "Silently agree with your team on who to eliminate. The moderator confirms it."],
+      sheriff: ["🕵 Sheriff — wake on your turn.", "Point at someone; the moderator nods if they're Mafia."],
+      doctor:  ["💉 Doctor — wake on your turn.", "Point at someone to save tonight (can be yourself)."],
+      civilian:["🌙 Night falls — close your eyes.", "Sit tight until the moderator wakes the town."],
+    };
+    const m = !alive ? ["🌙 Night — you're out.", "Sit tight."] : (map[role] || map.civilian);
+    $("mf-night-head").textContent = m[0];
+    $("mf-night-note").textContent = m[1];
+  }
+
+  // day vote — carded player
+  const showVote = inGame && !isMod && ph === "day" && alive && !mf.voteResult;
+  $("mf-vote").hidden = !showVote;
+  if (showVote) {
+    const mine = mf.yourVote;
+    $("mf-vote-cands").innerHTML = mfPeople(mf.candidates, mine, "mfvote");
+    $("mf-abstain").classList.toggle("picked", mine === 0);
+    $("mf-vote-msg").textContent = (mine || mine === 0)
+      ? "Vote locked — tap again to change it." : "Tap a name, or abstain.";
+  }
+
+  // day status for players who can't vote
+  let resultTxt = "";
+  if (inGame && !isMod && ph === "day") {
+    if (mf.voteResult) resultTxt = mfResultText(mf.voteResult) + " Waiting for the moderator…";
+    else if (!alive) resultTxt = "You're out — you can't vote. Watch it unfold.";
+  }
+  $("mf-result").hidden = !resultTxt;
+  $("mf-result").textContent = resultTxt;
+
+  // graveyard
+  const showGrave = (ph === "night" || ph === "day") && mf.deaths.length;
+  $("mf-deaths-wrap").hidden = !showGrave;
+  if (showGrave) $("mf-deaths").innerHTML = mf.deaths.map(d =>
+    `<div class="d"><span style="color:${d.color}">${esc(d.name)}</span> — <b>${MF_ROLE[d.role] || d.role}</b> · ${d.how === "night" ? "killed at night" : "lynched by day"}</div>`).join("");
+
+  // game over
+  $("mf-over").hidden = ph !== "gameover";
+  if (ph === "gameover") {
+    const townWon = mf.winner === "town";
+    $("mf-over-em").textContent = mf.winner ? (townWon ? "🎉" : "🔪") : "🃏";
+    $("mf-over-msg").textContent = mf.winner === "town" ? "The Town wins!"
+      : mf.winner === "mafia" ? "The Mafia win!" : "Game over";
+    if (isMod) $("mf-over-you").textContent = "You moderated. Nicely run.";
+    else if (!inGame) $("mf-over-you").textContent = "";
+    else {
+      const won = role === "mafia" ? mf.winner === "mafia" : mf.winner === "town";
+      $("mf-over-you").textContent = `You were ${MF_ROLE[role] || role}. ` + (won ? "Your side won! 🎉" : "Your side lost.");
+    }
+  }
+}
+
+$("mf-mod-list").addEventListener("click", e => {
+  const k = e.target.closest("[data-mfkill]");
+  if (k) { send("mafiaNight", { target: +k.dataset.mfkill }); return; }
+  const l = e.target.closest("[data-mflynch]");
+  if (l && confirm("Eliminate this player now?")) send("mafiaLynch", { target: +l.dataset.mflynch });
+});
+$("mf-night-none").addEventListener("click", () => send("mafiaNight", { target: 0 }));
+$("mf-begin-night").addEventListener("click", () => send("mafiaBeginNight"));
+$("mf-reveal-vote").addEventListener("click", () => send("mafiaVoteResolve"));
+$("mf-no-lynch").addEventListener("click", () => { if (confirm("Skip the vote — no lynch today?")) send("mafiaNoLynch"); });
+$("mf-next-night").addEventListener("click", () => send("mafiaNextNight"));
+$("mf-end").addEventListener("click", () => { if (confirm("End the game now and reveal all roles?")) send("mafiaEndGame"); });
+$("mf-vote-cands").addEventListener("click", e => {
+  const b = e.target.closest("[data-mfvote]");
+  if (b) send("mafiaVote", { target: +b.dataset.mfvote });
+});
+$("mf-abstain").addEventListener("click", () => send("mafiaVote", { target: 0 }));
 </script>
 </body>
 </html>

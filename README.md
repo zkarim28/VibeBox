@@ -3,8 +3,9 @@
 A tiny local party-game console. The **laptop** shows a menu and the game
 screen; **phones** on the same WiFi join and act as controllers.
 
-Currently playable: **Tap Race**, **Scattergories**, and **Taboo**. More games
-are stubbed on the menu as "Coming soon".
+Currently playable: **Tap Race**, **Scattergories**, **Taboo**, **BlackBox**,
+**Codenames**, **Wii Sandbox**, **Imposter**, and **Mafia**. More games are
+stubbed on the menu as "Coming soon".
 
 No dependencies — just Python 3 (stdlib only).
 
@@ -88,6 +89,29 @@ ends the host walks the room through each category:
 Host lobby settings: time per round, show-usernames, alliteration bonus, and a
 **Reset scores** button. `Start Round` begins; `New Round` (after a round)
 returns to the lobby.
+
+## Mafia
+
+The playing-card party classic, dealt over phones. One player is picked as the
+**moderator** in the lobby — they hold no card and run the night/day cycle from
+their phone (the laptop screen is just the shared "town square" and can stand in
+if the moderator's phone drops).
+
+- Host lobby: set how many **Mafia / Sheriffs / Doctors** there are (everyone
+  else is a Civilian), tap a player to make them the **moderator**, then
+  **Deal cards & start** (needs 4+ card-holders, and the town must outnumber the
+  Mafia).
+- Each phone shows its secret role. Mafia phones also list their team-mates.
+- **Night:** everyone closes their eyes for real; the moderator's phone shows the
+  full role list and a tap-list to record who the Mafia killed (or "nobody" if
+  the Doctor saved them). Sheriff / Doctor checks happen in the room — the
+  moderator nods or shakes.
+- **Day:** the big screen announces who died (role revealed). Living
+  card-holders vote on their phones; the vote auto-resolves once everyone's in,
+  or the moderator can reveal early, call **no lynch**, or eliminate someone
+  directly. The lynched player's role is revealed.
+- **Town wins** when every Mafia member is out. **Mafia win** once they equal or
+  outnumber the remaining town.
 
 ## Imposter
 

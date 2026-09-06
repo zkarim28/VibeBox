@@ -31,6 +31,7 @@ from urllib.parse import urlparse, parse_qs
 import blackbox       # local, BlackBox (CAH-style) card decks
 import codenames      # local, Codenames word list + board dealer
 import imposter       # local, Imposter word list
+import mafia          # local, Mafia role dealer
 import notify         # local, emails/texts the owner when a public link opens
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
@@ -99,6 +100,7 @@ HOST_ONLY = {
     "wiiReset", "wiiSelect", "wiiOpen", "wiiSens", "wiiCapture",
     "impSet", "impStart", "impNextRound", "impVoteStart", "impVoteResolve",
     "impSkip", "impGuessJudge", "impEndGame", "impLobby",
+    "mafiaSet", "mafiaSetModerator",
 }
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
@@ -159,6 +161,14 @@ GAMES = [
         "players": "4-10 players",
         "status": "ready",
         "emoji": "\N{PERFORMING ARTS}",
+    },
+    {
+        "id": "mafia",
+        "name": "Mafia",
+        "tagline": "Get dealt a secret role. The Mafia pick off the town each night; by day the town votes back.",
+        "players": "5-12 players + a moderator",
+        "status": "ready",
+        "emoji": "\N{PLAYING CARD BLACK JOKER}",
     },
     {
         "id": "doodle-dash",
@@ -486,6 +496,28 @@ def fresh_imposter():
     }
 
 
+def fresh_mafia():
+    """Mafia sub-state in its lobby form. pid-keyed dicts use int keys.
+
+    One player is the `moderator` — they hold no card and drive the night/day
+    cycle from their phone (the laptop can stand in via the host cookie).
+    """
+    return {
+        "phase": "lobby",     # lobby | reveal | night | day | gameover
+        "counts": {"mafia": 1, "sheriff": 1, "doctor": 1},
+        "moderator": None,    # pid
+        "roles": {},          # pid -> "mafia" | "sheriff" | "doctor" | "civilian"
+        "alive": {},          # pid -> bool  (carded players only)
+        "round": 0,           # night number, 1-based once the game starts
+        "lastNight": None,    # {"killed": [pid, ...]} — the most recent night
+        "deaths": [],         # [{"pid","name","color","role","how","round"}]
+        "votes": {},          # voterPid -> targetPid   (0 = abstain)
+        "voteResult": None,   # {"tie":True} | {"nolynch":True}
+                              #   | {"pid","name","color","role"}
+        "winner": None,       # "town" | "mafia"
+    }
+
+
 state = {
     "game": None,             # None = menu screen, else a GAMES id
     "phase": "lobby",         # tap-race phase: lobby | playing | over
@@ -498,6 +530,7 @@ state = {
     "codenames": fresh_codenames(),
     "wii": fresh_wii(),
     "imposter": fresh_imposter(),
+    "mafia": fresh_mafia(),
 }
 _next_pid = [1]
 
@@ -1129,6 +1162,7 @@ def public_state(for_pid=None):
         "codenames": _codenames_public(for_pid) if state["game"] == "codenames" else None,
         "wii": _wii_public(for_pid) if state["game"] == "wii-sandbox" else None,
         "imposter": _imp_public(for_pid) if state["game"] == "imposter" else None,
+        "mafia": _mafia_public(for_pid) if state["game"] == "mafia" else None,
     }
 
 
@@ -1317,6 +1351,12 @@ def do_select(game):
         keepim = state["imposter"]
         state["imposter"] = fresh_imposter()
         state["imposter"]["imposterCount"] = keepim["imposterCount"]
+
+        keepmf = state["mafia"]
+        state["mafia"] = fresh_mafia()
+        state["mafia"]["counts"] = dict(keepmf["counts"])
+        if keepmf["moderator"] in state["players"]:
+            state["mafia"]["moderator"] = keepmf["moderator"]
 
         if game == "taboo":
             _taboo_autoteam()
@@ -2278,6 +2318,353 @@ def do_imposter(pid, action, data, is_host=False):
     return {"ok": False, "error": "unknown_action"}
 
 
+# --------------------------------------------------------------- mafia actions ---
+def _mf_carded():
+    """pids that were dealt a card and are still connected as players."""
+    mf = state["mafia"]
+    return [pid for pid in mf["roles"] if pid in state["players"]]
+
+
+def _mf_alive():
+    mf = state["mafia"]
+    return [pid for pid in mf["roles"]
+            if pid in state["players"] and mf["alive"].get(pid)]
+
+
+def _mf_alive_counts():
+    """(mafia still alive, town still alive)."""
+    mf = state["mafia"]
+    maf = town = 0
+    for pid in _mf_alive():
+        if mf["roles"][pid] == "mafia":
+            maf += 1
+        else:
+            town += 1
+    return maf, town
+
+
+def _mf_check_win():
+    """End the game if it's decided. Returns True when it just ended.
+
+    Town wins once every Mafia is dead. Mafia win once they equal or outnumber
+    the surviving town.
+    """
+    mf = state["mafia"]
+    maf, town = _mf_alive_counts()
+    if maf == 0:
+        mf["winner"], mf["phase"] = "town", "gameover"
+        return True
+    if maf >= town:
+        mf["winner"], mf["phase"] = "mafia", "gameover"
+        return True
+    return False
+
+
+def _mf_kill(pid, how):
+    """Mark a carded player dead and log it (their role becomes public)."""
+    mf = state["mafia"]
+    if not mf["alive"].get(pid):
+        return
+    mf["alive"][pid] = False
+    p = state["players"].get(pid, {})
+    mf["deaths"].append({
+        "pid": pid, "name": p.get("name", "?"), "color": p.get("color", "#888"),
+        "role": mf["roles"].get(pid), "how": how, "round": mf["round"],
+    })
+
+
+def _mf_resolve_vote():
+    """Tally the day vote and eliminate the plurality pick (ties / an all-abstain
+    room mean nobody is lynched)."""
+    mf = state["mafia"]
+    tally = {}
+    for t in mf["votes"].values():
+        if t:
+            tally[t] = tally.get(t, 0) + 1
+    if not tally:
+        mf["voteResult"] = {"nolynch": True}
+        return
+    top = max(tally.values())
+    leaders = [t for t, c in tally.items() if c == top]
+    if len(leaders) != 1 or not mf["alive"].get(leaders[0]):
+        mf["voteResult"] = {"tie": True}
+        return
+    victim = leaders[0]
+    _mf_kill(victim, "voted")
+    p = state["players"].get(victim, {})
+    mf["voteResult"] = {"pid": victim, "name": p.get("name", "?"),
+                        "color": p.get("color", "#888"),
+                        "role": mf["roles"].get(victim)}
+    _mf_check_win()
+
+
+def _mf_start_game():
+    mf = state["mafia"]
+    carded = [pid for pid in state["players"] if pid != mf["moderator"]]
+    mf["roles"] = mafia.deal_roles(carded, mf["counts"], random)
+    mf["alive"] = {pid: True for pid in carded}
+    mf["round"] = 0
+    mf["lastNight"] = None
+    mf["deaths"] = []
+    mf["votes"] = {}
+    mf["voteResult"] = None
+    mf["winner"] = None
+    mf["phase"] = "reveal"
+
+
+def _mafia_public(for_pid=None):
+    mf = state["mafia"]
+    players = state["players"]
+    mod = mf["moderator"]
+    is_mod = for_pid is not None and for_pid == mod
+    reveal_all = mf["phase"] == "gameover" or is_mod
+
+    roster = []
+    for pid, p in players.items():
+        role = mf["roles"].get(pid)
+        in_game = role is not None
+        alive = mf["alive"].get(pid, False) if in_game else None
+        row = {
+            "pid": pid, "name": p["name"], "color": p["color"],
+            "connected": p.get("connected", True),
+            "isModerator": pid == mod,
+            "inGame": in_game,
+            "alive": alive,
+        }
+        # a role is public once its owner is dead, at game over, or to the mod
+        if in_game and (reveal_all or alive is False):
+            row["role"] = role
+        roster.append(row)
+    roster.sort(key=lambda r: r["pid"])
+
+    out = {
+        "phase": mf["phase"],
+        "counts": mf["counts"],
+        "moderatorPid": mod,
+        "moderatorName": players.get(mod, {}).get("name") if mod else None,
+        "round": mf["round"],
+        "roster": roster,
+        "playerCount": len(players),
+        "cardedCount": len(_mf_carded()),
+        "aliveCount": len(_mf_alive()),
+        "deaths": [{"name": d["name"], "color": d["color"], "role": d["role"],
+                    "how": d["how"], "round": d["round"]} for d in mf["deaths"]],
+        "lastNight": None,
+        "voteResult": mf["voteResult"],
+    }
+
+    if mf["lastNight"] is not None:
+        killed = mf["lastNight"]["killed"]
+        out["lastNight"] = {
+            "names": [players.get(k, {}).get("name", "?") for k in killed],
+            "roles": [mf["roles"].get(k) for k in killed],
+        }
+
+    if mf["phase"] == "day":
+        alive = _mf_alive()
+        out["votesIn"] = sum(1 for q in alive if q in mf["votes"])
+        out["votersNeeded"] = len(alive)
+        if reveal_all:
+            tally = {}
+            for t in mf["votes"].values():
+                tally[str(t)] = tally.get(str(t), 0) + 1
+            out["tally"] = tally
+
+    if mf["phase"] == "gameover":
+        out["winner"] = mf["winner"]
+
+    if for_pid is not None:
+        role = mf["roles"].get(for_pid)
+        out["youInGame"] = role is not None
+        out["youModerator"] = is_mod
+        out["youRole"] = role
+        out["youAlive"] = bool(role) and mf["alive"].get(for_pid, False)
+        if role == "mafia":
+            out["mafiaTeam"] = [players[q]["name"] for q in mf["roles"]
+                                if mf["roles"][q] == "mafia" and q != for_pid
+                                and q in players]
+        if mf["phase"] == "day":
+            out["yourVote"] = mf["votes"].get(for_pid)
+            if mf["alive"].get(for_pid) and mf["voteResult"] is None:
+                out["candidates"] = [
+                    {"pid": q, "name": players[q]["name"], "color": players[q]["color"]}
+                    for q in _mf_alive() if q != for_pid]
+        if is_mod and mf["phase"] in ("night", "day"):
+            out["nightTargets"] = [
+                {"pid": q, "name": players[q]["name"], "color": players[q]["color"],
+                 "role": mf["roles"].get(q)}
+                for q in _mf_alive()]
+    return out
+
+
+def do_mafia(pid, action, data, is_host=False):
+    """Mafia. Caller holds _lock. pid may be None for host-cookie actions.
+    mafiaSet / mafiaSetModerator are gated by HOST_ONLY (laptop lobby setup);
+    everything else accepts either the host cookie or the moderator's pid, so
+    the moderator runs the game from their phone and the laptop can stand in."""
+    mf = state["mafia"]
+    may_run = is_host or (mf["moderator"] is not None and pid is not None
+                          and pid == mf["moderator"])
+
+    if action == "mafiaSet":
+        if mf["phase"] != "lobby":
+            return {"ok": True}
+        key = data.get("key")
+        if key not in ("mafia", "sheriff", "doctor"):
+            return {"ok": False, "error": "bad_key"}
+        try:
+            v = max(0, min(int(data.get("value")), 8))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_value"}
+        if key == "mafia":
+            v = max(1, v)
+        mf["counts"][key] = v
+        broadcast()
+        return {"ok": True}
+
+    if action == "mafiaSetModerator":
+        if mf["phase"] != "lobby":
+            return {"ok": True}
+        try:
+            m = int(data.get("pid"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad"}
+        if m not in state["players"]:
+            return {"ok": False, "error": "bad"}
+        mf["moderator"] = None if mf["moderator"] == m else m
+        broadcast()
+        return {"ok": True}
+
+    if action == "mafiaStart":
+        if not may_run:
+            return {"ok": False, "error": "not_allowed"}
+        if mf["phase"] not in ("lobby", "gameover"):
+            return {"ok": True}
+        players = list(state["players"])
+        if mf["moderator"] not in players:
+            return {"ok": False, "error": "need_moderator"}
+        carded = [p for p in players if p != mf["moderator"]]
+        n = len(carded)
+        if n < 4:
+            return {"ok": False, "error": "need_players"}
+        c = mf["counts"]
+        if c["mafia"] < 1 or c["mafia"] + c["sheriff"] + c["doctor"] > n:
+            return {"ok": False, "error": "bad_counts"}
+        if c["mafia"] * 2 >= n:
+            return {"ok": False, "error": "too_many_mafia"}
+        _mf_start_game()
+        broadcast()
+        return {"ok": True}
+
+    if action == "mafiaLobby":
+        if not may_run:
+            return {"ok": False, "error": "not_allowed"}
+        keep = dict(mf["counts"])
+        mod = mf["moderator"] if mf["moderator"] in state["players"] else None
+        state["mafia"] = fresh_mafia()
+        state["mafia"]["counts"] = keep
+        state["mafia"]["moderator"] = mod
+        broadcast()
+        return {"ok": True}
+
+    if action == "mafiaEndGame":
+        if may_run and mf["phase"] in ("reveal", "night", "day"):
+            if not _mf_check_win():
+                mf["winner"] = None
+                mf["phase"] = "gameover"
+            broadcast()
+        return {"ok": True}
+
+    if action == "mafiaBeginNight":
+        if may_run and mf["phase"] == "reveal":
+            mf["round"] = 1
+            mf["phase"] = "night"
+            broadcast()
+        return {"ok": True}
+
+    if action == "mafiaNight":
+        if not may_run or mf["phase"] != "night":
+            return {"ok": True}
+        try:
+            tgt = int(data.get("target"))
+        except (TypeError, ValueError):
+            tgt = 0
+        killed = []
+        if tgt and mf["alive"].get(tgt):
+            _mf_kill(tgt, "night")
+            killed = [tgt]
+        mf["lastNight"] = {"killed": killed}
+        mf["votes"] = {}
+        mf["voteResult"] = None
+        if not _mf_check_win():
+            mf["phase"] = "day"
+        broadcast()
+        return {"ok": True}
+
+    if action == "mafiaVoteResolve":
+        if may_run and mf["phase"] == "day" and mf["voteResult"] is None:
+            _mf_resolve_vote()
+            broadcast()
+        return {"ok": True}
+
+    if action == "mafiaNoLynch":
+        if may_run and mf["phase"] == "day" and mf["voteResult"] is None:
+            mf["voteResult"] = {"nolynch": True}
+            broadcast()
+        return {"ok": True}
+
+    if action == "mafiaLynch":       # moderator overrides the vote
+        if may_run and mf["phase"] == "day" and mf["voteResult"] is None:
+            try:
+                t = int(data.get("target"))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "bad"}
+            if mf["alive"].get(t):
+                _mf_kill(t, "voted")
+                p = state["players"].get(t, {})
+                mf["voteResult"] = {"pid": t, "name": p.get("name", "?"),
+                                    "color": p.get("color", "#888"),
+                                    "role": mf["roles"].get(t)}
+                _mf_check_win()
+                broadcast()
+        return {"ok": True}
+
+    if action == "mafiaNextNight":
+        if may_run and mf["phase"] == "day" and mf["voteResult"] is not None:
+            mf["round"] += 1
+            mf["votes"] = {}
+            mf["voteResult"] = None
+            mf["lastNight"] = None
+            mf["phase"] = "night"
+            broadcast()
+        return {"ok": True}
+
+    # ---- player actions ----
+    p = state["players"].get(pid)
+    if not p:
+        return {"ok": False, "error": "not_joined"}
+    p["last_seen"] = time.time()
+
+    if action == "mafiaVote":
+        if mf["phase"] != "day" or mf["voteResult"] is not None:
+            return {"ok": True}
+        if not mf["alive"].get(pid):
+            return {"ok": False, "error": "not_alive"}
+        try:
+            t = int(data.get("target"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad"}
+        if t != 0 and (t == pid or not mf["alive"].get(t)):
+            return {"ok": False, "error": "bad_target"}
+        mf["votes"][pid] = t
+        if all(q in mf["votes"] for q in _mf_alive()):
+            _mf_resolve_vote()
+        broadcast()
+        return {"ok": True}
+
+    return {"ok": False, "error": "unknown_action"}
+
+
 def do_input(data, is_host=False):
     pid, action = data.get("pid"), data.get("action")
     if action in HOST_ONLY and not is_host:
@@ -2316,6 +2703,9 @@ def do_input(data, is_host=False):
 
         if isinstance(action, str) and action.startswith("imp"):
             return do_imposter(pid, action, data, is_host)
+
+        if isinstance(action, str) and action.startswith("mafia"):
+            return do_mafia(pid, action, data, is_host)
 
         # start / reset are game-wide controls — the laptop screen or any
         # phone can trigger them, so they don't require a valid player id.
