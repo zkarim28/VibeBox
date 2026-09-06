@@ -285,9 +285,10 @@ def base_url():
 
 
 def play_url():
-    """The address a phone joins at — carries the room code so a QR scan is
-    zero-friction."""
-    return f"{base_url()}/play?code={ROOM_CODE}"
+    """The short address a phone joins at — the room code *is* the path, e.g.
+    https://vibebox.tv/WXYZ . GET /<code> 302s to /play?code=<code>, so it's
+    just as zero-friction for a QR scan as the old long form."""
+    return f"{base_url()}/{ROOM_CODE}"
 
 
 def host_url():
@@ -2806,6 +2807,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _redirect(self, location, code=302):
+        self.send_response(code)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def _short_link_target(self, path):
+        """Map a short player link to the real controller path, or None.
+
+          /<ROOM_CODE>   /<ROOM_CODE>/   /j/<code>   /join      -> /play?code=...
+        so a phone can join by typing e.g.  vibebox.tv/WXYZ
+        """
+        p = path.rstrip("/")
+        seg = p.lstrip("/")
+        if p.startswith("/j/"):
+            code = p[3:].strip()
+            return "/play" + (f"?code={code.upper()}" if code else "")
+        if seg.lower() in ("j", "join", "go"):
+            return "/play"
+        if re.fullmatch(r"[A-Za-z0-9]{3,12}", seg) and seg.upper() == ROOM_CODE:
+            return f"/play?code={ROOM_CODE}"
+        return None
+
     def _read_json(self):
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length) if length else b""
@@ -2850,7 +2875,14 @@ class Handler(BaseHTTPRequestHandler):
             else self._is_host()
 
         if path == "/":
-            self._send_file("menu.html", "text/html; charset=utf-8")
+            # a player who just typed the bare domain (vibebox.tv) lands here —
+            # send them to the join screen. The host arrives via the ?host= link
+            # (handled above) or already holds the cookie, so they still get the
+            # menu.
+            if not host:
+                self._redirect("/play")
+            else:
+                self._send_file("menu.html", "text/html; charset=utf-8")
         elif path in ("/host", "/host/"):
             self._send_file("host.html", "text/html; charset=utf-8")
         elif path in ("/play", "/play/"):
@@ -2899,6 +2931,8 @@ class Handler(BaseHTTPRequestHandler):
             if not host:
                 self.send_error(403); return
             self._stream_events()
+        elif self._short_link_target(path) is not None:
+            self._redirect(self._short_link_target(path))
         else:
             self.send_error(404)
 
@@ -3059,7 +3093,7 @@ def _start_tunnel(port):
         "code": ROOM_CODE,
         "host_you": f"{url}/host?host={HOST_TOKEN}",
         "host_other": f"{url}/host",
-        "play": f"{url}/play?code={ROOM_CODE}",
+        "play": f"{url}/{ROOM_CODE}",
         "source": f"{sys.platform}",
     })
     return proc, url
@@ -3090,8 +3124,8 @@ def _banner(tunnel_on):
     print(f"      {host_url()}")
     print(f"  From another machine: {base_url()}/host  then the host password")
     print(line)
-    print(f"  Players join at:   {play_url()}")
-    print(f"  Room code:         {ROOM_CODE}    (the QR already includes it)")
+    print(f"  Players join at:   {play_url()}   (the code is in the link)")
+    print(f"  ...or the long way: {base_url()}/play   with room code {ROOM_CODE}")
     print(line)
     if tunnel_on:
         print("  PUBLIC via Cloudflare tunnel — anyone with the link AND code can join.")
@@ -3104,7 +3138,7 @@ def _banner(tunnel_on):
     if HTTPS_OK:
         print(line)
         print("  Phone motion controls (Wii Sandbox) need https — on this LAN use:")
-        print(f"      https://{lan_ip()}:{HTTPS_PORT}/play?code={ROOM_CODE}")
+        print(f"      https://{lan_ip()}:{HTTPS_PORT}/{ROOM_CODE}")
         print("  (accept the one-time self-signed cert warning on the phone)")
     print(line + "\n")
 

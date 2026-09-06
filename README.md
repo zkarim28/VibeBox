@@ -33,6 +33,40 @@ distro **Tkinter** package for the control window (Fedora:
 `sudo dnf install python3-tkinter`, Debian/Ubuntu: `sudo apt install python3-tk`).
 Without them the server still runs — Local mode, terminal only.
 
+### Short join links
+
+Players don't need the long `/play?code=WXYZ` URL. The **room code is the whole
+path** now:
+
+| Link | Goes to |
+|------|---------|
+| `<addr>/WXYZ` | join screen with the code filled in |
+| `<addr>/j/WXYZ` | same (explicit form) |
+| `<addr>/join` or just `<addr>/` | join screen, type the code yourself |
+| `<addr>/host` | the laptop screen (then the host password) |
+
+The join QR encodes the short form too. `<addr>` is your LAN address, the
+Cloudflare URL, or your own domain (below).
+
+### Your own domain (e.g. `vibebox.tv`)
+
+Point a domain at the server and players just type **`vibebox.tv/WXYZ`**:
+
+1. Add the domain to a free **Cloudflare** account and create a **named tunnel**
+   (`cloudflared tunnel create vibebox`), route it
+   (`cloudflared tunnel route dns vibebox vibebox.tv`), and run it
+   (`cloudflared tunnel run vibebox`, ideally as a service).
+2. Start VibeBox pointed at that hostname:
+
+   ```
+   PUBLIC_URL=https://vibebox.tv python3 server.py
+   ```
+
+   (skip the built-in quick-tunnel — `PUBLIC_URL` being set already does that).
+   Every printed link, the QR, and the emailed/texted links now use
+   `vibebox.tv`. For a memorable one-click host link also set a short
+   `HOST_TOKEN` (e.g. `HOST_TOKEN=letmein` → `vibebox.tv/?host=letmein`).
+
 ### Hosting from another machine
 
 The host screen (menu + game view) is protected by a **password**, so you can
@@ -163,8 +197,9 @@ falls back to the terminal prompt.
 1. **Open the host link** (button in the window, or the terminal link). It sets
    a cookie — that browser is now the "host". Any browser without the cookie
    sees a "screen locked" page, so a stray player can't hijack the game.
-2. Players open **/play** (or scan the QR — it carries the code), type a name +
-   the **room code**, tap **Join**.
+2. Players scan the QR, or type the short link **`<addr>/<room code>`** (the code
+   is the path), then a name and **Join**. Plain **`<addr>/`** works too — they
+   just enter the code by hand.
 3. On the laptop, pick a game. Players' phones switch to that controller.
 4. In Tap Race: **Space** starts / restarts, **R** returns to the lobby.
 
@@ -195,7 +230,8 @@ host bookmark), `MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / IP / minute).
 | `qr.py` | Dependency-free QR-code generator (verified against the `qrcode` package + decoded back with OpenCV). |
 | `scattergories.py` | Category pool, letter set, and the pure scoring / alliteration helpers. |
 | `taboo.py` | The ~145-card Taboo deck + a shuffle helper. |
-| `GET /` → `static/menu.html` | The games menu. Accessible: keyboard-navigable, screen-reader labelled, respects reduced-motion. Lists games from `GET /games`. |
+| `GET /` → `static/menu.html` | The games menu (host only). A non-host request 302s to `/play`, so a player can type the bare domain. Lists games from `GET /games`. |
+| `GET /<code>`, `/j/<code>`, `/join` | 302 → `/play?code=<code>` — the short player links. `<code>` must match the room code (a mismatch 404s). |
 | `GET /host` → `static/host.html` | The game screen. One shell, a view per game, switched by `state["game"]`. Polls `/state` ~2×/second for updates (SSE didn't survive the Cloudflare tunnel). |
 | `GET /play` → `static/controller.html` | The phone controller. One shell: "waiting" screen, then the current game's controls. |
 | `GET /?host=<token>` | Sets the host cookie (302 → clean path). Any laptop screen needs this cookie or it shows "locked". |
