@@ -49,17 +49,20 @@ launcher loads `.env` automatically. Nothing is sent unless you configure it.
 
 ## Taboo
 
-Two teams, **one phone each**. A card (guess word + 5 forbidden "taboo" words)
-shows on the big screen.
+Two teams. Everyone can join with their own phone (players are auto-split; switch
+in the lobby). A card (guess word + 5 forbidden "taboo" words) shows on the big
+screen.
 
 Before every turn there's a 5-second **"get ready"** countdown (big screen shows
 the team that's up; each phone tells its player their role). The host can tap
 **Start now** to skip it. Then the turn runs for 60 seconds:
 
-- The **clue-giving team's phone** shows the card with **✓ Got it** (+1 point)
-  and **Skip** buttons.
-- The **other team's phone** shows the same card with a **🔔 Taboo!** buzzer —
-  tap it if the clue-giver says a listed word.
+- **Every phone on the clue-giving team** shows the card with **✓ Got it**
+  (+1 point) and **Skip** buttons.
+- **Every phone on the other team** shows the same card with a **🔔 Taboo!**
+  buzzer — tap it if the clue-giver says the word or a listed word. The buzzer
+  sounds a loud buzz on the big screen (and every phone), so the clue-giver
+  hears the moment they slip.
 - Any of Got it / Skip / Taboo advances the big screen to the next card. A
   running turn log (✅ / ⏭ / 🔔) builds up.
 - When time runs out the turn ends; the host taps **Next turn** and the other

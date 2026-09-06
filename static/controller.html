@@ -965,6 +965,35 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
+// ---- buzzer sound (WebAudio, no asset). A harsh detuned saw stack, ~0.5s. ----
+let _actx = null;
+function _audioCtx() {
+  try {
+    _actx = _actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (_actx.state === "suspended") _actx.resume();
+  } catch (e) {}
+  return _actx;
+}
+function buzzTone() {
+  const c = _audioCtx(); if (!c) return;
+  const now = c.currentTime, g = c.createGain();
+  g.connect(c.destination);
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(0.3, now + 0.01);
+  g.gain.setValueAtTime(0.3, now + 0.4);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + 0.52);
+  for (const f of [98, 146, 220]) {
+    const o = c.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(f, now);
+    o.frequency.linearRampToValueAtTime(f * 0.9, now + 0.5);
+    o.connect(g); o.start(now); o.stop(now + 0.52);
+  }
+  if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+}
+// browsers need a user gesture before audio can play — unlock on the first tap
+addEventListener("pointerdown", _audioCtx, { once: true });
+
 let pid = null, token = null, color = "#38bdf8", goal = 40, phase = "lobby", myTaps = 0;
 let myName = "", currentGame = undefined;
 
@@ -1324,6 +1353,7 @@ function renderScat(s) {
 
 // ================= TABOO =================
 let tbMyTeam = null, tbSeq = -1, tbActedSeq = -1, tbPhase = null, tbcRAF = null, tbcReadyRAF = null;
+let tbBuzzSeq = null, tbBuzzGuard = 0;
 
 function tbcReadyTick(tb) {
   if (tbcReadyRAF) cancelAnimationFrame(tbcReadyRAF);
@@ -1363,7 +1393,8 @@ $("tb-got").addEventListener("click", () => tbAct("tabooGot"));
 $("tb-skip").addEventListener("click", () => tbAct("tabooSkip"));
 $("tb-buzzbtn").addEventListener("click", () => {
   tbAct("tabooBuzz");
-  if (navigator.vibrate) navigator.vibrate(35);
+  tbBuzzGuard = Date.now();   // we're about to make the noise locally
+  buzzTone();
 });
 document.querySelectorAll("#tb-noteam button").forEach(b =>
   b.addEventListener("click", () => send("tabooTeam", { team: +b.dataset.team })));
@@ -1377,6 +1408,14 @@ function renderTaboo(s) {
   tbMyTeam = me ? me.team : null;
   const nameOf = (t) => tb.teamNames[String(t)];
   const other = (t) => (t === 1 ? 2 : 1);
+
+  // sound the buzzer on every phone when a new buzz lands (skip the one we
+  // just pressed — it already played locally — and any stale buzz on rejoin)
+  const la = tb.lastAction;
+  if (la && la.seq !== tbBuzzSeq) {
+    if (tbBuzzSeq !== null && la.type === "buzz" && Date.now() - tbBuzzGuard > 1200) buzzTone();
+    tbBuzzSeq = la.seq;
+  }
 
   const inTurn = tb.phase === "turn";
   $("tb-hdr").hidden = !inTurn;
@@ -1408,7 +1447,9 @@ function renderTaboo(s) {
     } else if (tbMyTeam === other(tb.activeTeam)) {
       $("tb-buzz").hidden = false;
       $("tb-buzzbtn").disabled = acted;
-      $("tb-buzz-hint").textContent = acted ? "Next card…" : "Tap if they say a word on the card";
+      $("tb-buzz-hint").textContent = acted
+        ? "Next card…"
+        : "Watch the clue-giver — buzz if they say the word or any listed word";
     } else {
       $("tb-wait").hidden = false;
       $("tb-wait-team").textContent = "Spectating";

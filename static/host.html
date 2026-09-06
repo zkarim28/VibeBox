@@ -974,6 +974,34 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
+// ---- buzzer sound (WebAudio, no asset) — plays on the big screen when the
+// watching team hits TABOO!, so the clue-giver hears they slipped. ----
+let _actx = null;
+function _audioCtx() {
+  try {
+    _actx = _actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (_actx.state === "suspended") _actx.resume();
+  } catch (e) {}
+  return _actx;
+}
+function buzzTone() {
+  const c = _audioCtx(); if (!c) return;
+  const now = c.currentTime, g = c.createGain();
+  g.connect(c.destination);
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(0.4, now + 0.01);
+  g.gain.setValueAtTime(0.4, now + 0.45);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+  for (const f of [98, 146, 220]) {
+    const o = c.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(f, now);
+    o.frequency.linearRampToValueAtTime(f * 0.9, now + 0.58);
+    o.connect(g); o.start(now); o.stop(now + 0.6);
+  }
+}
+addEventListener("pointerdown", _audioCtx, { once: true });
+
 // drop the one-time ?host= token from the address bar once we're in
 if (/[?&]host=/.test(location.search)) {
   try { history.replaceState(null, "", location.pathname); } catch (e) {}
@@ -1200,7 +1228,7 @@ function tickTimer(sc) {
 
 // ================= TABOO =================
 const tbPhaseEl = { lobby: "tb-lobby", ready: "tb-ready", turn: "tb-turn-view", turnend: "tb-turnend", gameover: "tb-gameover" };
-let tbLastFlash = -1, tbRAF = null, tbReadyRAF = null;
+let tbLastFlash = -1, tbRAF = null, tbReadyRAF = null, tbFlashSeen = false;
 
 function tbReadyTick(tb) {
   if (tbReadyRAF) cancelAnimationFrame(tbReadyRAF);
@@ -1232,6 +1260,7 @@ function tbFlash(a) {
   void f.offsetWidth;
   f.classList.add("show");
   setTimeout(() => f.classList.remove("show"), 650);
+  if (a.type === "buzz" && tbFlashSeen) buzzTone();
 }
 
 function tbTick(tb) {
@@ -1312,6 +1341,8 @@ function renderTaboo(s) {
     $("tb-go-title").textContent = tb.winner === 0 ? "It's a tie! 🤝" : `${nameOf(tb.winner)} win! 🏆`;
     $("tb-go-score").textContent = `${nameOf(1)} ${tb.scores["1"]} — ${tb.scores["2"]} ${nameOf(2)}`;
   }
+
+  tbFlashSeen = true;   // suppress the buzzer sound for a stale action on first paint
 }
 
 $("tb-start").addEventListener("click", () => post({ action: "tabooStart" }));
