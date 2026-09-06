@@ -81,6 +81,39 @@ the host + player links. Copy `.env.example` to `.env` and fill in either SMTP
 details (e.g. a Gmail app-password) or a free `NOTIFY_WEBHOOK` (ntfy.sh). The
 launcher loads `.env` automatically. Nothing is sent unless you configure it.
 
+### Start games from your phone — the Launcher
+
+`launcher.py` is a tiny always-on control panel: from your phone you tap
+**Start a public game** and it spins up a `server.py` in public mode on the
+laptop, shows the join link + QR + live player count, and gives you a **Stop**
+button. No SSH. Run several at once; each gets its own Cloudflare tunnel.
+
+It listens on `127.0.0.1:8790` only — you expose it to your phone with
+**Tailscale Funnel** (or a Cloudflare tunnel on your own domain).
+
+```
+./setup-launcher.sh          # installs a systemd --user service, starts it
+```
+
+Then, one time, run the commands it prints:
+
+```
+sudo loginctl enable-linger $USER          # runs at boot / while logged out
+sudo tailscale set --operator=$USER        # lets your user manage Tailscale
+tailscale funnel --bg 8790                 # put the launcher on the internet
+```
+
+If `tailscale funnel` says Funnel isn't enabled for your tailnet, open the link
+it prints and enable it, then re-run. Now bookmark
+`https://<machine>.<tailnet>.ts.net/` on your phone.
+
+Password: set `LAUNCHER_PASSWORD` in `.env`, or use the auto-generated one in
+`~/.vibebox-launcher/password` (also printed to
+`journalctl --user -u vibebox-launcher`). A launcher restart re-attaches to
+games already running — it never kills a game in progress.
+
+Manage the service: `systemctl --user {status,restart,stop} vibebox-launcher`.
+
 ## Taboo
 
 Two teams. Everyone can join with their own phone (players are auto-split; switch
@@ -223,14 +256,16 @@ Anyone joining needs **both** the link **and** the room code; the laptop screens
 still require the host cookie. Read the security notes below before doing this.
 
 Env knobs: `MODE` (local|public), `GUI` (0 to disable the window), `PUBLIC_URL`,
-`ROOM_CODE` (default random), `HOST_TOKEN` (default random — set it for a stable
-host bookmark), `MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / IP / minute).
+`PORT` (8000), `ROOM_CODE` (default random), `HOST_TOKEN` (default random — set it
+for a stable host bookmark), `MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / IP
+/ minute).
 
 ## How it works
 
 | Piece | Role |
 |-------|------|
 | `server.py` | stdlib HTTP server. Holds all game state in memory. |
+| `launcher.py` | Separate always-on service (systemd `--user`, `setup-launcher.sh`). Spawns/monitors/stops `server.py` public instances from a phone-friendly page; state in `~/.vibebox-launcher/`. |
 | `gui.py` | The Tkinter control window (`server.py` calls `gui.run(ctx)` on the main thread; no import back into `server`). Skipped with `--no-gui` / `GUI=0`. |
 | `qr.py` | Dependency-free QR-code generator (verified against the `qrcode` package + decoded back with OpenCV). |
 | `scattergories.py` | Category pool, letter set, and the pure scoring / alliteration helpers. |

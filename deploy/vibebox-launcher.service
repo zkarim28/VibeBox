@@ -1,0 +1,22 @@
+# Reference copy — setup-launcher.sh writes the real unit with your absolute
+# paths into ~/.config/systemd/user/vibebox-launcher.service
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now vibebox-launcher
+#   sudo loginctl enable-linger $USER      # so it runs while you're logged out
+
+[Unit]
+Description=VibeBox Launcher — phone-friendly public game-server control panel
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/VibeBox
+ExecStart=/usr/bin/python3 %h/VibeBox/launcher.py
+EnvironmentFile=-%h/VibeBox/.env
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

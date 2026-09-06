@@ -3248,6 +3248,14 @@ def main():
         signal.signal(signal.SIGINT, signal.default_int_handler)
     except (ValueError, OSError):
         pass
+    # SIGTERM (e.g. `systemctl stop`, or the launcher stopping us) -> clean exit,
+    # so the tunnel is torn down instead of being orphaned.
+    def _on_sigterm(*_):
+        raise KeyboardInterrupt
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except (ValueError, OSError):
+        pass
 
     try:
         srv = ThreadingHTTPServer((HOST, PORT), Handler)   # binds + listens now
