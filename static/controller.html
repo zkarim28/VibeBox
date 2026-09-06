@@ -517,6 +517,13 @@
   .mf-btn.danger { background: #ef4444; color: #fff; }
   .mf-deaths { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.9rem; color: #cbd5e1; }
   .mf-deaths .d b { color: #fca5a5; }
+  .mf-step { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #1f2b40; }
+  .mf-step:last-child { border-bottom: 0; }
+  .mf-step > span:first-child { font-weight: 800; }
+  .mf-step .ctrl { display: flex; align-items: center; gap: 0.6rem; }
+  .mf-step .ctrl button { width: 2.2rem; height: 2.2rem; border-radius: 0.55rem; border: 1px solid #334155;
+    background: #1e293b; color: #e2e8f0; font-size: 1.2rem; font-weight: 800; }
+  .mf-step .ctrl b { min-width: 1.4rem; text-align: center; font-size: 1.2rem; }
 </style>
 </head>
 <body>
@@ -886,6 +893,27 @@
     </div>
 
     <div class="mf-msg" id="mf-wait" hidden>Waiting for the moderator to start…</div>
+
+    <div id="mf-claim-wrap" hidden style="margin-top:0.4rem">
+      <button class="mf-btn ghost" id="mf-claim-mod" type="button">🎓 Be the moderator</button>
+      <p class="mf-msg" id="mf-claim-msg" style="margin-top:0.5rem"></p>
+    </div>
+
+    <!-- moderator's lobby setup -->
+    <div id="mf-setup" hidden>
+      <div class="mf-card">
+        <h3>Roles</h3>
+        <div class="mf-step"><span>Mafia</span><span class="ctrl">
+          <button type="button" data-mfset-dn="mafia">−</button><b id="mf-c-mafia">1</b><button type="button" data-mfset-up="mafia">+</button></span></div>
+        <div class="mf-step"><span>Sheriffs</span><span class="ctrl">
+          <button type="button" data-mfset-dn="sheriff">−</button><b id="mf-c-sheriff">1</b><button type="button" data-mfset-up="sheriff">+</button></span></div>
+        <div class="mf-step"><span>Doctors</span><span class="ctrl">
+          <button type="button" data-mfset-dn="doctor">−</button><b id="mf-c-doctor">1</b><button type="button" data-mfset-up="doctor">+</button></span></div>
+        <p class="mf-msg" id="mf-setup-summary" style="margin-top:0.6rem"></p>
+      </div>
+      <button class="mf-btn go" id="mf-setup-start" type="button" style="margin-top:0.6rem">Deal cards &amp; start 🃏</button>
+      <p class="mf-msg" id="mf-setup-err" style="margin-top:0.4rem;color:#f87171"></p>
+    </div>
 
     <!-- moderator panel -->
     <div id="mf-mod" hidden>
@@ -2362,8 +2390,10 @@ function mfResultText(vr) {
   return `${vr.name} was eliminated — they were ${vr.role === "mafia" ? "MAFIA." : "a " + (MF_ROLE[vr.role] || vr.role) + "."}`;
 }
 
+let lastMafia = null;
 function renderMafia(s) {
   const mf = s.mafia; if (!mf) return;
+  lastMafia = mf;
   const ph = mf.phase;
   const inGame = mf.youInGame, isMod = mf.youModerator;
   const alive = mf.youAlive, role = mf.youRole;
@@ -2398,13 +2428,42 @@ function renderMafia(s) {
 
   // waiting / spectator
   const spectator = !inGame && !isMod;
-  $("mf-wait").hidden = !(ph === "lobby" || (spectator && ph !== "gameover"));
-  if (isMod && ph === "lobby")
-    $("mf-wait").textContent = "You're the moderator — set the roles and start on the big screen.";
-  else if (spectator && ph !== "lobby")
-    $("mf-wait").textContent = "A game's in progress — you'll be dealt in next round.";
-  else
-    $("mf-wait").textContent = "Waiting for the moderator to start…";
+  $("mf-wait").hidden = !(spectator && ph !== "lobby" && ph !== "gameover");
+  $("mf-wait").textContent = "A game's in progress — you'll be dealt in next round.";
+
+  // lobby: claim / release the moderator seat from your phone
+  $("mf-claim-wrap").hidden = ph !== "lobby";
+  $("mf-setup").hidden = !(ph === "lobby" && isMod);
+  if (ph === "lobby") {
+    const btn = $("mf-claim-mod");
+    if (isMod) {
+      btn.hidden = false;
+      btn.textContent = "Step down as moderator";
+      $("mf-claim-msg").textContent = "You run the game — no card for you. Set the roles below and deal.";
+    } else if (mf.moderatorPid) {
+      btn.hidden = true;
+      $("mf-claim-msg").textContent = `${mf.moderatorName || "Someone"} is the moderator.`;
+    } else {
+      btn.hidden = false;
+      btn.textContent = "🎓 Be the moderator";
+      $("mf-claim-msg").textContent = "Someone needs to run the game (they get no card). Tap to volunteer.";
+    }
+    if (isMod) {
+      const c = mf.counts;
+      ["mafia", "sheriff", "doctor"].forEach(k => $("mf-c-" + k).textContent = c[k]);
+      const n = s.players.length;
+      const carded = Math.max(0, n - 1);        // minus the moderator
+      const civ = Math.max(0, carded - c.mafia - c.sheriff - c.doctor);
+      $("mf-setup-summary").textContent =
+        `${c.mafia} Mafia · ${c.sheriff} Sheriff${c.sheriff === 1 ? "" : "s"} · ${c.doctor} Doctor${c.doctor === 1 ? "" : "s"} · ${civ} Civilian${civ === 1 ? "" : "s"}  (${carded} get a card)`;
+      let err = "";
+      if (carded < 4) err = "Need 4+ card-holding players (5 people total).";
+      else if (c.mafia + c.sheriff + c.doctor > carded) err = "More special roles than players.";
+      else if (c.mafia * 2 >= carded) err = "Too many Mafia — the town needs a majority.";
+      $("mf-setup-err").textContent = err;
+      $("mf-setup-start").disabled = !!err;
+    }
+  }
 
   // moderator panel
   $("mf-mod").hidden = !isMod || ph === "lobby" || ph === "gameover";
@@ -2489,16 +2548,16 @@ function renderMafia(s) {
   // game over
   $("mf-over").hidden = ph !== "gameover";
   if (ph === "gameover") {
-    const townWon = mf.winner === "town";
-    $("mf-over-em").textContent = mf.winner ? (townWon ? "🎉" : "🔪") : "🃏";
+    const won = inGame && (role === "mafia" ? mf.winner === "mafia" : mf.winner === "town");
+    $("mf-over-em").textContent = !mf.winner ? "🃏" : (isMod || !inGame)
+      ? (mf.winner === "town" ? "🎉" : "🔪")
+      : (won ? "🎉" : "😔");
     $("mf-over-msg").textContent = mf.winner === "town" ? "The Town wins!"
       : mf.winner === "mafia" ? "The Mafia win!" : "Game over";
     if (isMod) $("mf-over-you").textContent = "You moderated. Nicely run.";
     else if (!inGame) $("mf-over-you").textContent = "";
-    else {
-      const won = role === "mafia" ? mf.winner === "mafia" : mf.winner === "town";
-      $("mf-over-you").textContent = `You were ${MF_ROLE[role] || role}. ` + (won ? "Your side won! 🎉" : "Your side lost.");
-    }
+    else $("mf-over-you").textContent =
+      `You were ${MF_ROLE[role] || role}. ` + (won ? "Your side won! 🎉" : "Your side lost.");
   }
 }
 
@@ -2519,6 +2578,16 @@ $("mf-vote-cands").addEventListener("click", e => {
   if (b) send("mafiaVote", { target: +b.dataset.mfvote });
 });
 $("mf-abstain").addEventListener("click", () => send("mafiaVote", { target: 0 }));
+$("mf-claim-mod").addEventListener("click", () => send("mafiaClaimModerator"));
+document.querySelectorAll("[data-mfset-dn]").forEach(b => b.addEventListener("click", () => {
+  const k = b.dataset.mfsetDn;
+  if (lastMafia) send("mafiaSet", { key: k, value: lastMafia.counts[k] - 1 });
+}));
+document.querySelectorAll("[data-mfset-up]").forEach(b => b.addEventListener("click", () => {
+  const k = b.dataset.mfsetUp;
+  if (lastMafia) send("mafiaSet", { key: k, value: lastMafia.counts[k] + 1 });
+}));
+$("mf-setup-start").addEventListener("click", () => send("mafiaStart"));
 </script>
 </body>
 </html>

@@ -100,7 +100,7 @@ HOST_ONLY = {
     "wiiReset", "wiiSelect", "wiiOpen", "wiiSens", "wiiCapture",
     "impSet", "impStart", "impNextRound", "impVoteStart", "impVoteResolve",
     "impSkip", "impGuessJudge", "impEndGame", "impLobby",
-    "mafiaSet", "mafiaSetModerator",
+    "mafiaSetModerator",
 }
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
@@ -2499,14 +2499,17 @@ def _mafia_public(for_pid=None):
 
 def do_mafia(pid, action, data, is_host=False):
     """Mafia. Caller holds _lock. pid may be None for host-cookie actions.
-    mafiaSet / mafiaSetModerator are gated by HOST_ONLY (laptop lobby setup);
+    mafiaSetModerator is gated by HOST_ONLY (the laptop's moderator override);
     everything else accepts either the host cookie or the moderator's pid, so
-    the moderator runs the game from their phone and the laptop can stand in."""
+    the moderator runs the whole game — setup included — from their phone, and
+    the laptop can stand in."""
     mf = state["mafia"]
     may_run = is_host or (mf["moderator"] is not None and pid is not None
                           and pid == mf["moderator"])
 
     if action == "mafiaSet":
+        if not may_run:
+            return {"ok": False, "error": "not_allowed"}
         if mf["phase"] != "lobby":
             return {"ok": True}
         key = data.get("key")
@@ -2644,6 +2647,21 @@ def do_mafia(pid, action, data, is_host=False):
     if not p:
         return {"ok": False, "error": "not_joined"}
     p["last_seen"] = time.time()
+
+    if action == "mafiaClaimModerator":
+        # a player volunteers to run the game from their own phone. First come,
+        # first served — you can only claim the seat while it's empty, and tap
+        # again to step back down.
+        if mf["phase"] != "lobby":
+            return {"ok": True}
+        if mf["moderator"] is None:
+            mf["moderator"] = pid
+        elif mf["moderator"] == pid:
+            mf["moderator"] = None
+        else:
+            return {"ok": False, "error": "taken"}
+        broadcast()
+        return {"ok": True}
 
     if action == "mafiaVote":
         if mf["phase"] != "day" or mf["voteResult"] is not None:
