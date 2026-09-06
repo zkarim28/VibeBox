@@ -85,6 +85,31 @@
     border-radius: 0.6rem; cursor: pointer;
   }
   .back:hover { background: #1e293b; }
+
+  #roster { position: fixed; top: 1rem; right: 1rem; z-index: 6; }
+  #roster-toggle {
+    background: #0f172a; color: #e2e8f0; border: 1px solid #334155;
+    font: inherit; font-size: 0.95rem; padding: 0.5rem 0.9rem;
+    border-radius: 0.6rem; cursor: pointer;
+  }
+  #roster-toggle:hover { background: #1e293b; }
+  #roster-list {
+    position: absolute; right: 0; top: calc(100% + 0.4rem);
+    background: #0f172a; border: 1px solid #334155; border-radius: 0.7rem;
+    padding: 0.35rem; min-width: 230px; max-height: 65vh; overflow: auto;
+    box-shadow: 0 12px 44px rgba(0,0,0,0.55);
+  }
+  #roster-list .r { display: flex; align-items: center; gap: 0.55rem; padding: 0.4rem 0.5rem; border-radius: 0.5rem; }
+  #roster-list .r + .r { border-top: 1px solid #1e293b; }
+  #roster-list .dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; flex: none; }
+  #roster-list .nm { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #roster-list .r.off .nm { opacity: 0.5; }
+  #roster-list .kick {
+    background: #7f1d1d; color: #fecaca; border: 0; border-radius: 0.4rem;
+    padding: 0.3rem 0.55rem; font: inherit; font-size: 0.8rem; font-weight: 800; cursor: pointer;
+  }
+  #roster-list .kick:hover { background: #b91c1c; color: #fff; }
+  #roster-list .empty { color: #64748b; padding: 0.6rem; font-size: 0.9rem; }
   :where(button, a, [tabindex]):focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -467,6 +492,11 @@
 </head>
 <body>
   <button class="back" id="back" type="button">‹ Games menu</button>
+
+  <div id="roster" hidden>
+    <button id="roster-toggle" type="button" aria-expanded="false">👥 Players <span id="roster-count">0</span></button>
+    <div id="roster-list" hidden></div>
+  </div>
 
   <div id="lock" hidden>
     <form id="lock-form">
@@ -1072,6 +1102,7 @@ let leaving = false;
 let lastState = null;
 function render(s) {
   lastState = s;
+  renderRoster(s);
   if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia"].includes(s.game)) {
     location.href = "/"; return;
   }
@@ -1092,6 +1123,36 @@ function render(s) {
   else if (s.game === "imposter") renderImposter(s);
   else if (s.game === "mafia") renderMafia(s);
 }
+
+// ---- players panel: kick anyone back to the join screen ----
+function renderRoster(s) {
+  const ps = s.players || [];
+  $("roster").hidden = false;
+  $("roster-count").textContent = ps.length;
+  $("roster-list").innerHTML = ps.length
+    ? ps.map(p => `<div class="r ${p.connected === false ? "off" : ""}">
+        <span class="dot" style="background:${p.color}"></span>
+        <span class="nm">${esc(p.name)}${p.connected === false ? " ⟳" : ""}</span>
+        <button class="kick" type="button" data-kick="${p.pid}">Kick</button>
+      </div>`).join("")
+    : '<div class="empty">No players connected.</div>';
+}
+$("roster-toggle").addEventListener("click", () => {
+  const l = $("roster-list");
+  l.hidden = !l.hidden;
+  $("roster-toggle").setAttribute("aria-expanded", String(!l.hidden));
+});
+document.addEventListener("click", (e) => {
+  if (!$("roster").contains(e.target) && !$("roster-list").hidden) $("roster-list").hidden = true;
+});
+$("roster-list").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-kick]");
+  if (!b) return;
+  const p = (lastState && lastState.players || []).find(x => x.pid === +b.dataset.kick);
+  if (confirm(`Remove ${p ? p.name : "this player"} from the game?\nTheir phone goes back to the join screen.`)) {
+    post({ action: "kick", pid: +b.dataset.kick });
+  }
+});
 
 // ================= TAP RACE =================
 function renderTap(s) {

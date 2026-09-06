@@ -38,7 +38,7 @@ import scattergories  # local, Scattergories data + rules
 import taboo          # local, Taboo card deck
 
 HOST = "0.0.0.0"
-PORT = 8000
+PORT = int(os.environ.get("PORT", "8000"))
 # A second listener that serves the exact same site over HTTPS with a throwaway
 # self-signed cert. Its only reason to exist: iOS Safari refuses to hand a page
 # the gyroscope / motion sensors unless the page is a "secure context", and a
@@ -91,7 +91,7 @@ _join_hits = {}             # ip -> [timestamps]
 
 # Actions only the host screen may trigger.
 HOST_ONLY = {
-    "start", "reset",
+    "start", "reset", "kick",
     "scatStart", "scatSet", "scatEndRound", "scatNext", "scatLobby", "scatResetScores",
     "tabooStart", "tabooSet", "tabooBeginTurn", "tabooEndTurn", "tabooNextTurn",
     "tabooEndGame", "tabooNewGame",
@@ -534,6 +534,10 @@ state = {
     "mafia": fresh_mafia(),
 }
 _next_pid = [1]
+# pids the host has kicked — their controller's next /state poll gets
+# {"kicked": true} so it can show a notice and drop back to the join screen.
+# pids are monotonic and never reused, so this only ever grows by one per kick.
+_kicked = set()
 
 
 def _scat_public(for_pid=None):
@@ -1179,6 +1183,48 @@ def broadcast():
         _subscribers.discard(q)
 
 
+def _purge_player(pid):
+    """Scrub a pid out of every per-game sub-state. Caller holds _lock.
+    Used when the host kicks someone (a plain timeout just deletes the
+    players[] entry and leaves the rest to each game's own filtering)."""
+    sc = state["scat"]
+    sc["entries"].pop(pid, None)
+    sc["roundScores"].pop(pid, None)
+    for cat in sc["votes"].values():
+        cat.pop(pid, None)
+        for voters in cat.values():
+            voters.pop(pid, None)
+
+    bb = state["blackbox"]
+    for d in ("scores", "hands", "subs"):
+        bb[d].pop(pid, None)
+    if pid in bb["order"]:
+        bb["order"].remove(pid)
+    if bb["czar"] == pid:
+        bb["czar"] = None
+
+    cn = state["codenames"]
+    for t in ("red", "blue"):
+        if cn["spymasters"][t] == pid:
+            cn["spymasters"][t] = None
+
+    state["wii"]["pointers"].pop(pid, None)
+
+    im = state["imposter"]
+    for d in ("roles", "out", "votes"):
+        im[d].pop(pid, None)
+    if pid in im["order"]:
+        im["order"].remove(pid)
+    if im["guesser"] == pid:
+        im["guesser"] = None
+
+    mf = state["mafia"]
+    for d in ("roles", "alive", "votes"):
+        mf[d].pop(pid, None)
+    if mf["moderator"] == pid:
+        mf["moderator"] = None
+
+
 def reap_players():
     """Two-stage cleanup for silent controllers. Caller holds _lock.
     Silent past PLAYER_TIMEOUT -> flagged disconnected but kept (so they can
@@ -1302,6 +1348,8 @@ def do_resume(pid, token):
             pid = int(pid)
         except (TypeError, ValueError):
             return {"ok": False, "error": "unknown"}
+        if pid in _kicked:
+            return {"ok": False, "error": "kicked"}
         p = state["players"].get(pid)
         if not p or not token or not p.get("token") \
                 or not secrets.compare_digest(str(token), p["token"]):
@@ -2705,6 +2753,20 @@ def do_input(data, is_host=False):
                 broadcast()
             return {"ok": True}
 
+        if action == "kick":
+            # host removes a player. `pid` here is the *target*; the host cookie
+            # (HOST_ONLY) is what authorises it.
+            try:
+                kp = int(pid)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "bad_pid"}
+            if kp in state["players"]:
+                state["players"].pop(kp, None)
+                _purge_player(kp)
+                _kicked.add(kp)
+                broadcast()
+            return {"ok": True}
+
         if isinstance(action, str) and action.startswith("scat"):
             return do_scat(pid, action, data)
 
@@ -2916,6 +2978,13 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/state":
             pid = qs.get("pid", [None])[0]
             with _lock:
+                try:
+                    _ip = int(pid) if pid is not None else None
+                except (TypeError, ValueError):
+                    _ip = None
+                if _ip is not None and _ip in _kicked:
+                    self._send_json({"kicked": True})
+                    return
                 if not host and not _valid_pid(pid):
                     self._send_json({"locked": True, "game": state["game"],
                                      "players": []})

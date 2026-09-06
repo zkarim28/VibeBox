@@ -1090,6 +1090,14 @@ $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); })
 const _qs = new URLSearchParams(location.search);
 if (_qs.get("code")) $("code").value = _qs.get("code").slice(0, 6).toUpperCase();
 
+// just kicked by the host? say so on the join screen.
+try {
+  if (sessionStorage.getItem("pg:kicked")) {
+    sessionStorage.removeItem("pg:kicked");
+    $("err").textContent = "The host removed you from the game. Enter your name to rejoin.";
+  }
+} catch (e) {}
+
 // hopping between the :8000 and :8443 origins carries ?pid=&token= so we
 // re-attach to the exact same player record (one seat, no duplicate). Adopt
 // them, then scrub them from the address bar so they aren't bookmarked/shared.
@@ -2226,6 +2234,13 @@ async function pollState() {
     const url = "/state" + (pid ? "?pid=" + pid : "");
     const s = await (await fetch(url, { cache: "no-store" })).json();
     $("conn").hidden = true;   // a reply got through — we're online
+    if (s.kicked) {
+      // the host removed us — drop our seat and go back to name + code entry
+      try { sessionStorage.setItem("pg:kicked", "1"); } catch (e) {}
+      clearId();
+      location.replace(location.pathname + location.search);
+      return;
+    }
     const me = s.players.find(p => p.pid === pid);
     if (s.locked || (!me && pid)) {
       // the server no longer knows us (dropped past the grace window, or a

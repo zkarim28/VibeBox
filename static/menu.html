@@ -145,6 +145,18 @@
   }
   #lock-err { color: #fca5a5; min-height: 1.2em; }
 
+  #roster { margin-top: 0.75rem; text-align: left; }
+  #roster .r { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; }
+  #roster .r + .r { border-top: 1px solid var(--line); }
+  #roster .dot { width: 0.65rem; height: 0.65rem; border-radius: 50%; flex: none; }
+  #roster .nm { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #roster .r.off .nm { opacity: 0.5; }
+  #roster .kick {
+    background: #7f1d1d; color: #fecaca; border: 0; border-radius: 0.4rem;
+    padding: 0.25rem 0.55rem; font: inherit; font-size: 0.78rem; font-weight: 800; cursor: pointer;
+  }
+  #roster .kick:hover { background: #b91c1c; color: #fff; }
+
   footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.85rem; }
 
   @media (prefers-reduced-motion: reduce) {
@@ -181,6 +193,7 @@
         <p class="codechip">Room code <b id="join-code">····</b></p>
         <img class="qr" id="qr" src="/phoneQR.png" alt="QR code linking to the player controller page">
         <p class="count" id="count" aria-live="polite">No players connected yet</p>
+        <div id="roster"></div>
       </aside>
     </div>
 
@@ -292,13 +305,18 @@ let lastCount = null;
 async function refreshState() {
   try {
     const s = await (await fetch("/state", { cache: "no-store" })).json();
-    const n = (s.players || []).length;
+    const ps = s.players || [];
+    const n = ps.length;
     if (n !== lastCount) {
       lastCount = n;
       $("count").textContent = n === 0
         ? "No players connected yet"
         : `${n} player${n === 1 ? "" : "s"} connected`;
     }
+    $("roster").innerHTML = ps.map(p => `<div class="r ${p.connected === false ? "off" : ""}">
+      <span class="dot" style="background:${p.color}"></span>
+      <span class="nm">${escapeHtml(p.name)}${p.connected === false ? " ⟳" : ""}</span>
+      <button class="kick" type="button" data-kick="${p.pid}">Kick</button></div>`).join("");
     const resume = $("resume");
     if (s.game) {
       $("resume-text").textContent = `A game is already running.`;
@@ -308,6 +326,20 @@ async function refreshState() {
     }
   } catch (e) {}
 }
+
+$("roster").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-kick]");
+  if (!b) return;
+  const nm = b.previousElementSibling ? b.previousElementSibling.textContent.trim() : "this player";
+  if (!confirm(`Remove ${nm}? Their phone goes back to the join screen.`)) return;
+  try {
+    await fetch("/input", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "kick", pid: +b.dataset.kick }),
+    });
+    refreshState();
+  } catch (err) {}
+});
 
 // --- host lock: unlock with the ?host= link OR the host password ---
 async function unlocked() {

@@ -203,6 +203,11 @@ falls back to the terminal prompt.
 3. On the laptop, pick a game. Players' phones switch to that controller.
 4. In Tap Race: **Space** starts / restarts, **R** returns to the lobby.
 
+The laptop always shows a **👥 Players** control (top-right on the game screen,
+under the join QR on the menu). Tap **Kick** next to a name to remove that
+player — their phone drops straight back to the name + code screen (they can
+rejoin if you let them).
+
 ### Playing over the internet
 
 Pick **Public** (window button, or `P` at the terminal prompt) and it runs
@@ -241,7 +246,7 @@ host bookmark), `MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / IP / minute).
 | `GET /phoneQR.png` | *(host only)* QR of the join URL (carries `?code=`). Regenerates when the address changes. |
 | `POST /select` | *(host only)* `{game}` — pick a game (or `null` for the menu). |
 | `POST /join` | `{name, code}` — code must match; rate-limited per IP; capped at `MAX_PLAYERS`. Returns `pid` + color or `{error}`. |
-| `POST /input` | `{pid, action, ...}`. Player actions (`tap`, `scatAnswers`, `scatVote`, `tabooGot/Skip/Buzz`, `tabooTeam`, `leave`, `ping`) are open. Host-only actions (`start`, `reset`, `scatStart/Set/EndRound/Next/Lobby/ResetScores`, `tabooStart/Set/BeginTurn/EndTurn/NextTurn/EndGame/NewGame`) require the host cookie — see `HOST_ONLY` in `server.py`. |
+| `POST /input` | `{pid, action, ...}`. Player actions (`tap`, `scatAnswers`, `scatVote`, `tabooGot/Skip/Buzz`, `tabooTeam`, `leave`, `ping`) are open. Host-only actions (`start`, `reset`, `kick`, `scatStart/Set/EndRound/Next/Lobby/ResetScores`, `tabooStart/Set/BeginTurn/EndTurn/NextTurn/EndGame/NewGame`) require the host cookie — see `HOST_ONLY` in `server.py`. `kick` (`{action:"kick", pid}`) drops that player; their next `/state` poll returns `{kicked:true}` and the controller bounces to the join screen. |
 | `GET /state?pid=<id>` | Latest state. Needs the host cookie **or** a valid `pid`; otherwise returns `{locked: true}`. A present `pid` also refreshes that player's heartbeat — the controller polls ~2×/second, so it doubles as the keep-alive. |
 | `GET /events` | *(host only)* legacy SSE stream — unused now (the host polls). |
 
