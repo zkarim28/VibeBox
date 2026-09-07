@@ -4,8 +4,8 @@ A tiny local party-game console. The **laptop** shows a menu and the game
 screen; **phones** on the same WiFi join and act as controllers.
 
 Currently playable: **Tap Race**, **Scattergories**, **Taboo**, **BlackBox**,
-**Codenames**, **Wii Sandbox**, **Imposter**, and **Mafia**. More games are
-stubbed on the menu as "Coming soon".
+**Codenames**, **Wii Sandbox**, **Imposter**, **Mafia**, and **Ludo**. More
+games are stubbed on the menu as "Coming soon".
 
 No dependencies — just Python 3 (stdlib only).
 
@@ -203,6 +203,29 @@ IMPOSTER". Set how many imposters in the lobby (needs 3+ players).
   win.**
 - **Crew win** when every imposter is out. **Imposters win** on a correct guess
   or if every crew member gets eliminated.
+
+## Ludo
+
+The classic race game for **2–4 players, one phone each**. The first four
+players to join take the green / yellow / blue / red seats (in that clockwise
+order); anyone after that spectates. The laptop draws the shared board.
+
+- Turn order is fixed — green, yellow, blue, red — and the first seat rolls
+  first (no "highest roll goes first" phase). On your turn the phone shows a
+  **Roll** button; the die lands on the big screen.
+- You need a **6** to move a token out of your base onto the board — so a 6 is
+  also what "starts" you. A 6 always earns another roll; **three 6s in a row**
+  forfeits the whole turn.
+- After rolling, your movable tokens **glow on the phone's mini-board** — tap
+  one to move it. If there's only one legal move it's played automatically; if
+  there's none, the turn passes.
+- Land exactly on an opponent (off a safe square) to **capture** it — straight
+  back to their base. **Star squares and every colour's start square are safe.**
+- Two of your own tokens on one square form a **block**: opponents can't land
+  on, pass, or capture it.
+- Reaching the final home needs an **exact** roll. **First player to get all
+  four tokens home wins.** The host can **End game** early (furthest-along
+  player wins) or start a **New game** with the same seats.
 
 ## Run
 

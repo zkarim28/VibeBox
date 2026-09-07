@@ -445,6 +445,31 @@
     background: #1e293b; color: #e2e8f0; font-weight: 800; font-size: 0.95rem; cursor: pointer; }
   .mf-mods button.on { border-color: #fbbf24; background: #3a2f10; color: #fde68a; }
 
+  /* --- Ludo --- */
+  #view-ludo { width: min(1040px, 100%); display: flex; flex-direction: column; align-items: center; }
+  #view-ludo h1 { text-align: center; }
+  .lu-wrap { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; align-items: flex-start; width: 100%; }
+  .lu-boardbox { flex: 0 0 auto; width: min(560px, 90vw); }
+  .lu-board { width: 100%; aspect-ratio: 1; display: block; border-radius: 0.6rem;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.45); background: #f8f5ec; }
+  .lu-move { animation: lupulse 1s ease-in-out infinite; }
+  @keyframes lupulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+  .lu-side { flex: 1 1 260px; min-width: 240px; display: flex; flex-direction: column; gap: 0.8rem; }
+  .lu-turn { text-align: center; font-size: clamp(1.3rem, 3.5vw, 2rem); font-weight: 800; }
+  .lu-die { margin: 0 auto; width: 4.5rem; height: 4.5rem; border-radius: 0.8rem; background: #fff;
+    display: grid; place-items: center; font-size: 2.6rem; font-weight: 900; color: #0f172a;
+    box-shadow: inset 0 -4px 0 rgba(0,0,0,0.15); }
+  .lu-event { text-align: center; color: #cbd5e1; min-height: 1.4rem; font-size: 1.05rem; }
+  .lu-seats { display: flex; flex-direction: column; gap: 0.45rem; }
+  .lu-seat { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.7rem;
+    border-radius: 0.6rem; background: #1e293b; border: 2px solid transparent; }
+  .lu-seat.turn { border-color: #fbbf24; }
+  .lu-seat.off { opacity: 0.4; }
+  .lu-seat .dot { width: 1rem; height: 1rem; border-radius: 50%; flex: 0 0 auto; }
+  .lu-seat .nm { font-weight: 800; flex: 1; }
+  .lu-seat .prog { font-variant-numeric: tabular-nums; color: #94a3b8; }
+  .lu-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; margin-top: 0.5rem; }
+
   /* --- Imposter --- */
   #view-imposter { width: min(1000px, 100%); display: flex; flex-direction: column; align-items: center; }
   #view-imposter h1 { text-align: center; }
@@ -998,6 +1023,28 @@
     </div>
   </div>
 
+  <!-- ============ LUDO ============ -->
+  <div id="view-ludo" hidden>
+    <h1>Ludo<span></span></h1>
+    <div class="lu-wrap">
+      <div class="lu-boardbox">
+        <svg class="lu-board" id="lu-board" viewBox="0 0 15 15" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="lu-side">
+        <div class="lu-turn" id="lu-turn">Ludo</div>
+        <div class="lu-die" id="lu-die" hidden>–</div>
+        <div class="lu-event" id="lu-event"></div>
+        <div class="lu-seats" id="lu-seats"></div>
+        <div class="lu-controls">
+          <button class="btn" id="lu-start" type="button" hidden>Start game</button>
+          <button class="btn" id="lu-again" type="button" hidden>New game</button>
+          <button class="btn ghost" id="lu-lobby" type="button" hidden>Back to lobby</button>
+          <button class="btn ghost" id="lu-end" type="button" hidden>End game</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="tb-flash" id="tb-flash"></div>
 
 <script>
@@ -1103,7 +1150,7 @@ let lastState = null;
 function render(s) {
   lastState = s;
   renderRoster(s);
-  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia"].includes(s.game)) {
+  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo"].includes(s.game)) {
     location.href = "/"; return;
   }
   $("view-tap").hidden = s.game !== "tap-race";
@@ -1114,6 +1161,7 @@ function render(s) {
   $("view-wii").hidden = s.game !== "wii-sandbox";
   $("view-imposter").hidden = s.game !== "imposter";
   $("view-mafia").hidden = s.game !== "mafia";
+  $("view-ludo").hidden = s.game !== "ludo";
   if (s.game === "tap-race") renderTap(s);
   else if (s.game === "scattergories") renderScat(s);
   else if (s.game === "taboo") renderTaboo(s);
@@ -1122,6 +1170,7 @@ function render(s) {
   else if (s.game === "wii-sandbox") renderWii(s);
   else if (s.game === "imposter") renderImposter(s);
   else if (s.game === "mafia") renderMafia(s);
+  else if (s.game === "ludo") renderLudo(s);
 }
 
 // ---- players panel: kick anyone back to the join screen ----
@@ -2111,6 +2160,151 @@ $("mf-start").addEventListener("click", () => post({ action: "mafiaStart" }));
 $("mf-again").addEventListener("click", () => post({ action: "mafiaStart" }));
 $("mf-lobbybtn").addEventListener("click", () => post({ action: "mafiaLobby" }));
 
+// ================= LUDO =================
+const LUDO_SEATS = ["green", "yellow", "blue", "red"];
+const LUDO_TINT = { green: "#22c55e", yellow: "#eab308", blue: "#3b82f6", red: "#ef4444" };
+const LUDO_PATH = [
+  [1,6],[2,6],[3,6],[4,6],[5,6],
+  [6,5],[6,4],[6,3],[6,2],[6,1],[6,0],
+  [7,0],
+  [8,0],[8,1],[8,2],[8,3],[8,4],[8,5],
+  [9,6],[10,6],[11,6],[12,6],[13,6],[14,6],
+  [14,7],
+  [14,8],[13,8],[12,8],[11,8],[10,8],[9,8],
+  [8,9],[8,10],[8,11],[8,12],[8,13],[8,14],
+  [7,14],
+  [6,14],[6,13],[6,12],[6,11],[6,10],[6,9],
+  [5,8],[4,8],[3,8],[2,8],[1,8],[0,8],
+  [0,7],
+  [0,6],
+];
+const LUDO_START = { green: 0, yellow: 13, blue: 26, red: 39 };
+const LUDO_LANE = {
+  green:  [[1,7],[2,7],[3,7],[4,7],[5,7]],
+  yellow: [[7,1],[7,2],[7,3],[7,4],[7,5]],
+  blue:   [[13,7],[12,7],[11,7],[10,7],[9,7]],
+  red:    [[7,13],[7,12],[7,11],[7,10],[7,9]],
+};
+const LUDO_BASE = {
+  green:  [[2,2],[4,2],[2,4],[4,4]],
+  yellow: [[11,2],[13,2],[11,4],[13,4]],
+  blue:   [[11,11],[13,11],[11,13],[13,13]],
+  red:    [[2,11],[4,11],[2,13],[4,13]],
+};
+const LUDO_SAFE_ABS = new Set();
+for (const c of LUDO_SEATS) { LUDO_SAFE_ABS.add(LUDO_START[c]); LUDO_SAFE_ABS.add((LUDO_START[c] + 8) % 52); }
+
+function ludoCell(color, prog, slot) {
+  if (prog < 0)  { const b = LUDO_BASE[color][slot]; return [b[0], b[1]]; }
+  if (prog <= 50) { const c = LUDO_PATH[(LUDO_START[color] + prog) % 52]; return [c[0] + 0.5, c[1] + 0.5]; }
+  if (prog <= 55) { const c = LUDO_LANE[color][prog - 51]; return [c[0] + 0.5, c[1] + 0.5]; }
+  const f = (slot - 1.5) * 0.44;   // home: fan the finished tokens along the colour's triangle
+  if (color === "green")  return [6.25, 7.5 + f];
+  if (color === "yellow") return [7.5 + f, 6.25];
+  if (color === "blue")   return [8.75, 7.5 + f];
+  return [7.5 + f, 8.75];
+}
+
+function ludoBoardBase() {
+  let s = '<rect x="0" y="0" width="15" height="15" fill="#f8f5ec"/>';
+  const quad = { green: [0,0], yellow: [9,0], blue: [9,9], red: [0,9] };
+  for (const c of LUDO_SEATS) {
+    const [x, y] = quad[c];
+    s += `<rect x="${x}" y="${y}" width="6" height="6" fill="${LUDO_TINT[c]}"/>`;
+    s += `<rect x="${x + 1}" y="${y + 1}" width="4" height="4" fill="#f8f5ec"/>`;
+    for (const [bx, by] of LUDO_BASE[c])
+      s += `<circle cx="${bx}" cy="${by}" r="0.6" fill="#fff" stroke="${LUDO_TINT[c]}" stroke-width="0.16"/>`;
+  }
+  for (let i = 0; i < 52; i++) {
+    const [x, y] = LUDO_PATH[i];
+    let fill = "#fff";
+    for (const c of LUDO_SEATS) if (LUDO_START[c] === i) fill = LUDO_TINT[c];
+    s += `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}" stroke="#d8cfc0" stroke-width="0.04"/>`;
+    if (LUDO_SAFE_ABS.has(i) && fill === "#fff")
+      s += `<text x="${x + 0.5}" y="${y + 0.74}" font-size="0.72" text-anchor="middle" fill="#f0b429">★</text>`;
+  }
+  for (const c of LUDO_SEATS) for (const [x, y] of LUDO_LANE[c])
+    s += `<rect x="${x}" y="${y}" width="1" height="1" fill="${LUDO_TINT[c]}" stroke="#d8cfc0" stroke-width="0.04"/>`;
+  s += `<polygon points="6,6 6,9 7.5,7.5" fill="${LUDO_TINT.green}"/>`;
+  s += `<polygon points="6,6 9,6 7.5,7.5" fill="${LUDO_TINT.yellow}"/>`;
+  s += `<polygon points="9,6 9,9 7.5,7.5" fill="${LUDO_TINT.blue}"/>`;
+  s += `<polygon points="6,9 9,9 7.5,7.5" fill="${LUDO_TINT.red}"/>`;
+  return s;
+}
+
+function ludoTokensSVG(seats, movableIdx, youColor) {
+  const items = [];
+  for (const seat of seats) (seat.tokens || []).forEach((prog, idx) => {
+    const [gx, gy] = ludoCell(seat.color, prog, idx);
+    items.push({ color: seat.color, tint: seat.tint, idx, prog, gx, gy });
+  });
+  const groups = {};
+  items.forEach(it => { const k = it.gx.toFixed(2) + "," + it.gy.toFixed(2); (groups[k] = groups[k] || []).push(it); });
+  let s = "";
+  for (const k in groups) {
+    const g = groups[k];
+    g.forEach((it, n) => {
+      let cx = it.gx, cy = it.gy;
+      if (g.length > 1) { const a = n / g.length * Math.PI * 2; cx += Math.cos(a) * 0.2; cy += Math.sin(a) * 0.2; }
+      const mv = movableIdx && youColor === it.color && movableIdx.has(it.idx);
+      if (mv) s += `<circle class="lu-ring" cx="${cx}" cy="${cy}" r="0.46" fill="none" stroke="#0f172a" stroke-width="0.1"/>`;
+      s += `<circle class="lu-tok${mv ? " lu-move" : ""}" data-token="${it.idx}" data-color="${it.color}" cx="${cx}" cy="${cy}" r="0.34" fill="${it.tint}" stroke="#1c1917" stroke-width="0.09"${mv ? ' style="cursor:pointer"' : ""}/>`;
+    });
+  }
+  return s;
+}
+
+function ludoEventText(ev, seats) {
+  if (!ev) return "";
+  const nm = (c) => (seats.find(s => s.color === c) || {}).name || c;
+  switch (ev.kind) {
+    case "capture": return `${nm(ev.color)} captured ${ev.victims.map(nm).join(" & ")}! ⚔️`;
+    case "home":    return `${nm(ev.color)} sent a token home ⭐`;
+    case "finish":  return `${nm(ev.color)} got all four home! 🏆`;
+    case "forfeit": return `Three 6s in a row — ${nm(ev.color)} loses the turn`;
+    case "nomove":  return `${nm(ev.color)} — no legal move`;
+    case "rollagain": return `${nm(ev.color)} rolled a 6 — roll again`;
+    default: return "";
+  }
+}
+
+function renderLudo(s) {
+  const g = s.ludo; if (!g) return;
+  const lobby = g.phase === "lobby", over = g.phase === "gameover";
+
+  $("lu-board").innerHTML = ludoBoardBase() + ludoTokensSVG(g.seats, null, null);
+
+  if (lobby) $("lu-turn").textContent = g.seatedCount >= 2
+    ? `${g.seatedCount} seated — press Start` : "Waiting for players…";
+  else if (over) $("lu-turn").innerHTML = `🏆 ${esc(g.winnerName || g.winner || "?")} wins!`;
+  else $("lu-turn").innerHTML = `<span style="color:${g.turnTint}">${esc(g.turnName || g.turnColor || "")}</span>` +
+    (g.phase === "rolling" ? " to roll" : " to move");
+
+  const die = $("lu-die");
+  die.hidden = lobby || g.die == null;
+  if (!die.hidden) { die.textContent = g.die; die.style.color = g.rolledTint || "#0f172a"; }
+
+  $("lu-event").textContent = over ? "" : ludoEventText(g.event, g.seats);
+
+  $("lu-seats").innerHTML = g.seats.map(seat => {
+    const home = seat.homeCount, isTurn = !lobby && !over && seat.color === g.turnColor;
+    const label = seat.name || "— empty —";
+    return `<div class="lu-seat ${isTurn ? "turn" : ""} ${seat.connected ? "" : "off"}">
+      <span class="dot" style="background:${seat.tint}"></span>
+      <span class="nm">${esc(label)}</span>
+      <span class="prog">${home}/4 home</span></div>`;
+  }).join("");
+
+  $("lu-start").hidden = !(lobby && g.seatedCount >= 2);
+  $("lu-again").hidden = !over;
+  $("lu-lobby").hidden = !over;
+  $("lu-end").hidden = lobby || over;
+}
+$("lu-start").addEventListener("click", () => post({ action: "ludoStart" }));
+$("lu-again").addEventListener("click", () => post({ action: "ludoNewGame" }));
+$("lu-lobby").addEventListener("click", () => post({ action: "ludoLobby" }));
+$("lu-end").addEventListener("click", () => { if (confirm("End the game now?")) post({ action: "ludoEndGame" }); });
+
 // ---- live updates: poll /state (works through any proxy / tunnel; SSE didn't) ----
 function hostPollDelay() {
   const s = lastState;
@@ -2119,6 +2313,7 @@ function hostPollDelay() {
   if (s && s.game === "blackbox" && s.blackbox && s.blackbox.phase === "judge") return 300;
   if (s && s.game === "imposter") return 500;
   if (s && s.game === "mafia") return 500;
+  if (s && s.game === "ludo") return 400;
   return 550;
 }
 async function pollHost() {

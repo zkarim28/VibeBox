@@ -101,6 +101,7 @@ HOST_ONLY = {
     "impSet", "impStart", "impNextRound", "impVoteStart", "impVoteResolve",
     "impSkip", "impGuessJudge", "impEndGame", "impLobby",
     "mafiaSetModerator",
+    "ludoStart", "ludoLobby", "ludoNewGame", "ludoEndGame",
 }
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
@@ -169,6 +170,14 @@ GAMES = [
         "players": "5-12 players + a moderator",
         "status": "ready",
         "emoji": "\N{PLAYING CARD BLACK JOKER}",
+    },
+    {
+        "id": "ludo",
+        "name": "Ludo",
+        "tagline": "Race all four tokens home. Roll a 6 to break out, capture on contact, block with a pair.",
+        "players": "2-4 players · 1 phone each",
+        "status": "ready",
+        "emoji": "\N{GAME DIE}",
     },
     {
         "id": "doodle-dash",
@@ -519,6 +528,47 @@ def fresh_mafia():
     }
 
 
+# --------------------------------------------------------------------- ludo ---
+# Four seats in clockwise board order. green=top-left, yellow=top-right,
+# blue=bottom-right, red=bottom-left (matches the board art the phones/host draw).
+LUDO_SEATS = ["green", "yellow", "blue", "red"]
+LUDO_TINT = {"green": "#22c55e", "yellow": "#eab308",
+             "blue": "#3b82f6", "red": "#ef4444"}
+# Absolute entry cell on the 52-cell loop for each colour.
+LUDO_START = {"green": 0, "yellow": 13, "blue": 26, "red": 39}
+# A token's journey is measured as `progress`:
+#   -1            still in base
+#   0            sitting on its own start cell
+#   0..50        somewhere on the shared loop      abs = (START[c] + progress) % 52
+#   51..55       its private 5-cell home lane
+#   56           home  (needs an exact roll to land here)
+LUDO_HOME = 56
+LUDO_LANE_START = 51
+# Safe cells: every colour's start, plus the star square 8 steps past it.
+LUDO_SAFE = set()
+for _c in LUDO_SEATS:
+    LUDO_SAFE.add(LUDO_START[_c])
+    LUDO_SAFE.add((LUDO_START[_c] + 8) % 52)
+
+
+def fresh_ludo():
+    """Ludo sub-state in its lobby form. pid-keyed dicts use int keys."""
+    return {
+        "phase": "lobby",     # lobby | rolling | moving | gameover
+        "seats": {},          # colour -> pid   (first 4 players, in join order)
+        "order": [],          # colours with a seat, in board order — the turn cycle
+        "turn": 0,            # index into `order`
+        "tokens": {c: [-1, -1, -1, -1] for c in LUDO_SEATS},   # progress x4
+        "die": None,          # last roll shown on the big screen
+        "rolledBy": None,     # colour that rolled it
+        "sixStreak": 0,       # consecutive 6s this turn
+        "moves": [],          # legal moves for the current roll: {token,to,capture}
+        "event": None,        # {"kind": ...} flavour for the big screen
+        "finished": [],       # colours that got all four home, in order
+        "winner": None,       # colour that finished first
+    }
+
+
 state = {
     "game": None,             # None = menu screen, else a GAMES id
     "phase": "lobby",         # tap-race phase: lobby | playing | over
@@ -532,6 +582,7 @@ state = {
     "wii": fresh_wii(),
     "imposter": fresh_imposter(),
     "mafia": fresh_mafia(),
+    "ludo": fresh_ludo(),
 }
 _next_pid = [1]
 # pids the host has kicked — their controller's next /state poll gets
@@ -1168,6 +1219,7 @@ def public_state(for_pid=None):
         "wii": _wii_public(for_pid) if state["game"] == "wii-sandbox" else None,
         "imposter": _imp_public(for_pid) if state["game"] == "imposter" else None,
         "mafia": _mafia_public(for_pid) if state["game"] == "mafia" else None,
+        "ludo": _ludo_public(for_pid) if state["game"] == "ludo" else None,
     }
 
 
@@ -1223,6 +1275,10 @@ def _purge_player(pid):
         mf[d].pop(pid, None)
     if mf["moderator"] == pid:
         mf["moderator"] = None
+
+    lu = state["ludo"]
+    for c in [c for c, q in lu["seats"].items() if q == pid]:
+        lu["seats"].pop(c, None)
 
 
 def reap_players():
@@ -1406,6 +1462,10 @@ def do_select(game):
         state["mafia"]["counts"] = dict(keepmf["counts"])
         if keepmf["moderator"] in state["players"]:
             state["mafia"]["moderator"] = keepmf["moderator"]
+
+        state["ludo"] = fresh_ludo()
+        if game == "ludo":
+            _ludo_seat_players()
 
         if game == "taboo":
             _taboo_autoteam()
@@ -2732,6 +2792,328 @@ def do_mafia(pid, action, data, is_host=False):
     return {"ok": False, "error": "unknown_action"}
 
 
+# ----------------------------------------------------------------- ludo actions ---
+def _ludo_seat_players():
+    """Map the first (up to) four players, in join order, onto the four seats."""
+    lu = state["ludo"]
+    pids = sorted(state["players"])[:4]
+    lu["seats"] = {LUDO_SEATS[i]: pid for i, pid in enumerate(pids)}
+
+
+def _ludo_order():
+    """Seats that currently hold a connected player, in board order."""
+    lu = state["ludo"]
+    return [c for c in LUDO_SEATS if lu["seats"].get(c) in state["players"]]
+
+
+def _ludo_abs(color, prog):
+    """Absolute loop cell (0..51) for a token at `prog`, or None if it's in
+    base / its private home lane."""
+    if prog is None or prog < 0 or prog > 50:
+        return None
+    return (LUDO_START[color] + prog) % 52
+
+
+def _ludo_count_on(color, abs_cell):
+    return sum(1 for q in state["ludo"]["tokens"][color]
+               if 0 <= q <= 50 and _ludo_abs(color, q) == abs_cell)
+
+
+def _ludo_path_clear(color, prog, target):
+    """True if no opponent block (2+ tokens on one cell) sits strictly between
+    `prog` and `target` on the shared loop."""
+    for p in range(max(prog, 0) + 1, target):
+        if p > 50:
+            break
+        cell = _ludo_abs(color, p)
+        for oc in LUDO_SEATS:
+            if oc != color and _ludo_count_on(oc, cell) >= 2:
+                return False
+    return True
+
+
+def _ludo_land_check(color, target):
+    """Can `color` land on `target`? Returns a (possibly empty) capture list of
+    [oppColor, tokenIndex], or None if the landing is illegal."""
+    if target >= LUDO_LANE_START:
+        return []                       # private lane / home — always clear
+    cell = _ludo_abs(color, target)
+    caps = []
+    for oc in LUDO_SEATS:
+        if oc == color:
+            continue
+        idxs = [k for k, q in enumerate(state["ludo"]["tokens"][oc])
+                if 0 <= q <= 50 and _ludo_abs(oc, q) == cell]
+        if not idxs:
+            continue
+        if len(idxs) >= 2:
+            return None                 # opponent block — can't land
+        if cell in LUDO_SAFE:
+            continue                     # safe cell — share it, no capture
+        caps.append([oc, idxs[0]])
+    return caps
+
+
+def _ludo_legal_moves(color, d):
+    toks = state["ludo"]["tokens"][color]
+    moves = []
+    for i, prog in enumerate(toks):
+        if prog == LUDO_HOME:
+            continue
+        if prog == -1:
+            if d != 6:
+                continue
+            target = 0
+        else:
+            target = prog + d
+            if target > LUDO_HOME:
+                continue               # need an exact roll to finish
+        if prog >= 0 and not _ludo_path_clear(color, prog, target):
+            continue
+        caps = _ludo_land_check(color, target)
+        if caps is None:
+            continue
+        moves.append({"token": i, "from": prog, "to": target, "capture": caps})
+    return moves
+
+
+def _ludo_apply_move(color, mv):
+    lu = state["ludo"]
+    toks = lu["tokens"][color]
+    toks[mv["token"]] = mv["to"]
+    victims = []
+    for oc, oi in mv["capture"]:
+        lu["tokens"][oc][oi] = -1
+        victims.append(oc)
+    ev = {"kind": "move", "color": color}
+    if victims:
+        ev = {"kind": "capture", "color": color, "victims": victims}
+    if mv["to"] == LUDO_HOME:
+        ev = {"kind": "home", "color": color}
+        if all(t == LUDO_HOME for t in toks):
+            if color not in lu["finished"]:
+                lu["finished"].append(color)
+            if lu["winner"] is None:
+                lu["winner"] = color
+            ev = {"kind": "finish", "color": color}
+    return ev
+
+
+def _ludo_advance_turn():
+    lu = state["ludo"]
+    order = _ludo_order()
+    if not order:
+        lu["order"] = order
+        return
+    cur = lu["order"][lu["turn"]] if lu["turn"] < len(lu["order"]) else None
+    idx = order.index(cur) if cur in order else max(0, lu["turn"] - 1)
+    lu["order"] = order
+    for step in range(1, len(order) + 1):
+        nxt = (idx + step) % len(order)
+        if order[nxt] not in lu["finished"]:
+            lu["turn"] = nxt
+            return
+    lu["turn"] = (idx + 1) % len(order)
+
+
+def _ludo_post_move(color, d):
+    lu = state["ludo"]
+    if lu["winner"] is not None:
+        lu["phase"] = "gameover"
+        return
+    if d == 6:
+        lu["phase"] = "rolling"          # bonus roll, same seat
+    else:
+        lu["sixStreak"] = 0
+        _ludo_advance_turn()
+        lu["phase"] = "rolling"
+
+
+def _ludo_after_roll(color, d):
+    lu = state["ludo"]
+    lu["die"] = d
+    lu["rolledBy"] = color
+    lu["sixStreak"] = lu["sixStreak"] + 1 if d == 6 else 0
+
+    if lu["sixStreak"] >= 3:
+        lu["event"] = {"kind": "forfeit", "color": color}
+        lu["sixStreak"] = 0
+        lu["moves"] = []
+        _ludo_advance_turn()
+        lu["phase"] = "rolling"
+        return
+
+    moves = _ludo_legal_moves(color, d)
+    lu["moves"] = moves
+    if not moves:
+        if d == 6:
+            lu["event"] = {"kind": "rollagain", "color": color}
+            lu["phase"] = "rolling"      # a 6 always earns another roll
+        else:
+            lu["event"] = {"kind": "nomove", "color": color}
+            _ludo_advance_turn()
+            lu["phase"] = "rolling"
+        return
+    if len(moves) == 1:
+        lu["event"] = _ludo_apply_move(color, moves[0])
+        lu["moves"] = []
+        _ludo_post_move(color, d)
+        return
+    lu["phase"] = "moving"
+
+
+def _ludo_start_game():
+    lu = state["ludo"]
+    _ludo_seat_players()
+    lu["order"] = _ludo_order()
+    if len(lu["order"]) < 2:
+        return False
+    lu["tokens"] = {c: [-1, -1, -1, -1] for c in LUDO_SEATS}
+    lu["turn"] = 0
+    lu["die"] = None
+    lu["rolledBy"] = None
+    lu["sixStreak"] = 0
+    lu["moves"] = []
+    lu["event"] = None
+    lu["finished"] = []
+    lu["winner"] = None
+    lu["phase"] = "rolling"
+    return True
+
+
+def _ludo_public(for_pid=None):
+    lu = state["ludo"]
+    players = state["players"]
+    order = _ludo_order()
+    live = lu["phase"] in ("rolling", "moving")
+    cur = None
+    if live and order:
+        cur = order[lu["turn"]] if lu["turn"] < len(order) else order[0]
+
+    seats = []
+    for c in LUDO_SEATS:
+        pid = lu["seats"].get(c)
+        p = players.get(pid)
+        seats.append({
+            "color": c, "tint": LUDO_TINT[c], "pid": pid,
+            "name": p["name"] if p else None,
+            "connected": p.get("connected", True) if p else False,
+            "tokens": lu["tokens"][c],
+            "homeCount": sum(1 for t in lu["tokens"][c] if t == LUDO_HOME),
+            "inGame": c in order,
+            "finished": c in lu["finished"],
+        })
+
+    scur = lu["seats"].get(cur)
+    out = {
+        "phase": lu["phase"],
+        "seats": seats,
+        "turnColor": cur,
+        "turnName": players.get(scur, {}).get("name") if scur else None,
+        "turnTint": LUDO_TINT[cur] if cur else None,
+        "die": lu["die"],
+        "rolledBy": lu["rolledBy"],
+        "rolledTint": LUDO_TINT[lu["rolledBy"]] if lu["rolledBy"] else None,
+        "sixStreak": lu["sixStreak"],
+        "event": lu["event"],
+        "safe": sorted(LUDO_SAFE),
+        "starts": LUDO_START,
+        "playerCount": len(players),
+        "seatedCount": len(order),
+        "finished": lu["finished"],
+        "winner": lu["winner"],
+        "winnerName": players.get(lu["seats"].get(lu["winner"]), {}).get("name")
+                      if lu["winner"] else None,
+    }
+
+    if for_pid is not None:
+        mine = next((c for c in LUDO_SEATS if lu["seats"].get(c) == for_pid), None)
+        out["youColor"] = mine
+        out["youTint"] = LUDO_TINT[mine] if mine else None
+        out["youSeated"] = mine is not None
+        out["yourTurn"] = mine is not None and mine == cur
+        out["yourTokens"] = lu["tokens"][mine] if mine else None
+        if out["yourTurn"] and lu["phase"] == "moving":
+            out["yourMoves"] = [
+                {"token": m["token"], "from": m["from"], "to": m["to"],
+                 "capture": bool(m["capture"])}
+                for m in lu["moves"]]
+        else:
+            out["yourMoves"] = []
+    return out
+
+
+def do_ludo(pid, action, data, is_host=False):
+    """Ludo. Caller holds _lock. pid may be None for host-cookie actions."""
+    lu = state["ludo"]
+
+    if action == "ludoLobby":
+        state["ludo"] = fresh_ludo()
+        _ludo_seat_players()
+        broadcast()
+        return {"ok": True}
+
+    if action in ("ludoStart", "ludoNewGame"):
+        if action == "ludoStart" and lu["phase"] not in ("lobby", "gameover"):
+            return {"ok": True}
+        if not _ludo_start_game():
+            return {"ok": False, "error": "need_players"}
+        broadcast()
+        return {"ok": True}
+
+    if action == "ludoEndGame":
+        if lu["phase"] in ("rolling", "moving"):
+            if lu["winner"] is None:
+                best, score = None, -1
+                for c in _ludo_order():
+                    s = sum((t if t >= 0 else 0) + (30 if t == LUDO_HOME else 0)
+                            for t in lu["tokens"][c])
+                    if s > score:
+                        best, score = c, s
+                lu["winner"] = best
+            lu["phase"] = "gameover"
+            broadcast()
+        return {"ok": True}
+
+    # ---- player actions ----
+    p = state["players"].get(pid)
+    if not p:
+        return {"ok": False, "error": "not_joined"}
+    p["last_seen"] = time.time()
+    mine = next((c for c in LUDO_SEATS if lu["seats"].get(c) == pid), None)
+    if mine is None:
+        return {"ok": False, "error": "not_seated"}
+    order = _ludo_order()
+    cur = order[lu["turn"]] if order and lu["turn"] < len(order) else None
+    if mine != cur:
+        return {"ok": False, "error": "not_your_turn"}
+
+    if action == "ludoRoll":
+        if lu["phase"] != "rolling":
+            return {"ok": True}
+        _ludo_after_roll(mine, random.randint(1, 6))
+        broadcast()
+        return {"ok": True}
+
+    if action == "ludoMove":
+        if lu["phase"] != "moving":
+            return {"ok": True}
+        try:
+            tk = int(data.get("token"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad"}
+        mv = next((m for m in lu["moves"] if m["token"] == tk), None)
+        if mv is None:
+            return {"ok": False, "error": "bad_move"}
+        lu["event"] = _ludo_apply_move(mine, mv)
+        lu["moves"] = []
+        _ludo_post_move(mine, lu["die"])
+        broadcast()
+        return {"ok": True}
+
+    return {"ok": False, "error": "unknown_action"}
+
+
 def do_input(data, is_host=False):
     pid, action = data.get("pid"), data.get("action")
     if action in HOST_ONLY and not is_host:
@@ -2787,6 +3169,9 @@ def do_input(data, is_host=False):
 
         if isinstance(action, str) and action.startswith("mafia"):
             return do_mafia(pid, action, data, is_host)
+
+        if isinstance(action, str) and action.startswith("ludo"):
+            return do_ludo(pid, action, data, is_host)
 
         # start / reset are game-wide controls — the laptop screen or any
         # phone can trigger them, so they don't require a valid player id.
