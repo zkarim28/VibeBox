@@ -79,8 +79,14 @@ ROOM_CODE = (os.environ.get("ROOM_CODE", "").strip().upper()
 HOST_TOKEN = os.environ.get("HOST_TOKEN", "").strip() or secrets.token_urlsafe(18)
 # Password the owner types on the lock screen to unlock host control from ANY
 # machine (the ?host=<token> link still works one-click from your own browser).
-# Override with HOST_PASSWORD=... .
-HOST_PASSWORD = os.environ.get("HOST_PASSWORD", "").strip() or "Brownnation1!"
+# Override with HOST_PASSWORD=... (e.g. in a git-ignored .env file) to keep it
+# stable across restarts. Left unset, a random one is generated at startup and
+# printed once below — it changes every restart, so set your own for a
+# password you can remember.
+_PW_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no 0/O/1/l/I — easy to read/type
+HOST_PASSWORD_AUTO = not os.environ.get("HOST_PASSWORD", "").strip()
+HOST_PASSWORD = (os.environ.get("HOST_PASSWORD", "").strip()
+                 or "".join(secrets.choice(_PW_ALPHABET) for _ in range(10)))
 _unlock_hits = {}           # ip -> [timestamps]  (throttle password guessing)
 JOIN_WINDOW = 60             # seconds
 # join attempts per client IP per window — mainly to slow room-code guessing.
@@ -3577,6 +3583,9 @@ def _banner(tunnel_on):
     print("  HOST — open this to unlock the laptop screen (one click):")
     print(f"      {host_url()}")
     print(f"  From another machine: {base_url()}/host  then the host password")
+    if HOST_PASSWORD_AUTO:
+        print(f"      (auto-generated, changes every restart): {HOST_PASSWORD}")
+        print("      Set HOST_PASSWORD=... (e.g. in a .env file) for one that stays put.")
     print(line)
     print(f"  Players join at:   {play_url()}   (the code is in the link)")
     print(f"  ...or the long way: {base_url()}/play   with room code {ROOM_CODE}")

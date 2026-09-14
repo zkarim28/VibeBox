@@ -71,8 +71,10 @@ Point a domain at the server and players just type **`vibebox.tv/WXYZ`**:
 
 The host screen (menu + game view) is protected by a **password**, so you can
 open the host link from any device — your laptop, a friend's, a phone — and
-unlock it by typing the password (default `Brownnation1!`, override with
-`HOST_PASSWORD`). Your own `?host=…` bookmark still unlocks in one click.
+unlock it by typing the password. Set your own with `HOST_PASSWORD=...` (a
+git-ignored `.env` file is the easy way — see below); leave it unset and the
+server generates a random one each start and prints it in the startup banner.
+Your own `?host=…` bookmark still unlocks in one click.
 
 ### Get the public link emailed / texted to you
 
