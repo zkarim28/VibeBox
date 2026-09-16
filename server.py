@@ -36,6 +36,7 @@ import notify         # local, emails/texts the owner when a public link opens
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
 import taboo          # local, Taboo card deck
+import wordhunt       # local, Word Hunt board generator + dictionary
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8000"))
@@ -108,6 +109,7 @@ HOST_ONLY = {
     "impSkip", "impGuessJudge", "impEndGame", "impLobby",
     "mafiaSetModerator",
     "ludoStart", "ludoLobby", "ludoNewGame", "ludoEndGame",
+    "whSet", "whStart", "whEndRound", "whLobby", "whResetScores",
 }
 
 # The game catalog shown on the menu screen. Add an entry here (and, for a
@@ -184,6 +186,14 @@ GAMES = [
         "players": "2-4 players · 1 phone each",
         "status": "ready",
         "emoji": "\N{GAME DIE}",
+    },
+    {
+        "id": "word-hunt",
+        "name": "Word Hunt",
+        "tagline": "One shared letter grid, 90 seconds. Swipe every word you can find before time's up.",
+        "players": "1-20 players",
+        "status": "ready",
+        "emoji": "\N{LEFT-POINTING MAGNIFYING GLASS}",
     },
     {
         "id": "doodle-dash",
@@ -575,6 +585,19 @@ def fresh_ludo():
     }
 
 
+def fresh_wordhunt():
+    """A Word Hunt sub-state in its lobby form. pid-keyed dicts use int keys."""
+    return {
+        "phase": "lobby",       # lobby | playing | review
+        "seconds": 90,          # round length
+        "grid": [],             # 16 letters, row-major (4x4), this round's board
+        "endsAt": None,         # epoch seconds
+        "round": 0,
+        "found": {},             # pid -> {WORD: {"score","path"}}, insertion order
+        "roundScores": {},       # pid -> points earned this round
+    }
+
+
 state = {
     "game": None,             # None = menu screen, else a GAMES id
     "phase": "lobby",         # tap-race phase: lobby | playing | over
@@ -589,6 +612,7 @@ state = {
     "imposter": fresh_imposter(),
     "mafia": fresh_mafia(),
     "ludo": fresh_ludo(),
+    "wordhunt": fresh_wordhunt(),
 }
 _next_pid = [1]
 # pids the host has kicked — their controller's next /state poll gets
@@ -1226,6 +1250,7 @@ def public_state(for_pid=None):
         "imposter": _imp_public(for_pid) if state["game"] == "imposter" else None,
         "mafia": _mafia_public(for_pid) if state["game"] == "mafia" else None,
         "ludo": _ludo_public(for_pid) if state["game"] == "ludo" else None,
+        "wordhunt": _wh_public(for_pid) if state["game"] == "word-hunt" else None,
     }
 
 
@@ -1285,6 +1310,10 @@ def _purge_player(pid):
     lu = state["ludo"]
     for c in [c for c, q in lu["seats"].items() if q == pid]:
         lu["seats"].pop(c, None)
+
+    wh = state["wordhunt"]
+    wh["found"].pop(pid, None)
+    wh["roundScores"].pop(pid, None)
 
 
 def reap_players():
@@ -1472,6 +1501,10 @@ def do_select(game):
         state["ludo"] = fresh_ludo()
         if game == "ludo":
             _ludo_seat_players()
+
+        keepwh = state["wordhunt"]
+        state["wordhunt"] = fresh_wordhunt()
+        state["wordhunt"]["seconds"] = keepwh["seconds"]
 
         if game == "taboo":
             _taboo_autoteam()
@@ -3120,6 +3153,126 @@ def do_ludo(pid, action, data, is_host=False):
     return {"ok": False, "error": "unknown_action"}
 
 
+# ------------------------------------------------------------- word hunt actions ---
+def _wh_new_round():
+    wh = state["wordhunt"]
+    wh["grid"] = wordhunt.new_grid()
+    wh["found"] = {}
+    wh["roundScores"] = {}
+    wh["round"] += 1
+    wh["endsAt"] = time.time() + max(15, int(wh["seconds"]))
+    wh["phase"] = "playing"
+
+
+def _wh_public(for_pid=None):
+    wh = state["wordhunt"]
+    players = state["players"]
+
+    rows = []
+    for pid, p in players.items():
+        found = wh["found"].get(pid, {})
+        rows.append({
+            "pid": pid, "name": p["name"], "color": p["color"],
+            "connected": p.get("connected", True),
+            "wordCount": len(found),
+            "roundScore": wh["roundScores"].get(pid, 0),
+            "total": p["score"],
+        })
+    rows.sort(key=lambda r: (-r["roundScore"], -r["total"], r["name"].lower()))
+
+    out = {
+        "phase": wh["phase"],
+        "seconds": wh["seconds"],
+        "grid": wh["grid"],
+        "endsAt": wh["endsAt"],
+        "serverNow": time.time(),
+        "round": wh["round"],
+        "leaderboard": rows,
+        "playerCount": len(players),
+    }
+
+    if wh["phase"] == "review":
+        out["recap"] = [
+            {"pid": pid, "name": players[pid]["name"], "color": players[pid]["color"],
+             "words": [{"word": w, "score": info["score"]} for w, info in found.items()]}
+            for pid, found in wh["found"].items() if pid in players
+        ]
+
+    if for_pid is not None:
+        mine = wh["found"].get(for_pid, {})
+        out["myWords"] = [{"word": w, "score": info["score"]} for w, info in mine.items()]
+        out["myScore"] = wh["roundScores"].get(for_pid, 0)
+    return out
+
+
+def do_wordhunt(pid, action, data, is_host=False):
+    """Word Hunt. Caller holds _lock. pid may be None for host-cookie actions."""
+    wh = state["wordhunt"]
+
+    if action == "whSet":
+        if wh["phase"] != "lobby":
+            return {"ok": True}
+        if data.get("key") == "seconds":
+            try:
+                wh["seconds"] = min(300, max(30, int(data.get("value"))))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "bad_value"}
+            broadcast()
+        return {"ok": True}
+
+    if action == "whStart":
+        if wh["phase"] in ("lobby", "review"):
+            _wh_new_round()
+            broadcast()
+        return {"ok": True}
+
+    if action == "whEndRound":
+        if wh["phase"] == "playing":
+            wh["phase"] = "review"
+            broadcast()
+        return {"ok": True}
+
+    if action == "whLobby":
+        wh["phase"] = "lobby"
+        broadcast()
+        return {"ok": True}
+
+    if action == "whResetScores":
+        for pl in state["players"].values():
+            pl["score"] = 0
+        broadcast()
+        return {"ok": True}
+
+    # ---- player actions ----
+    p = state["players"].get(pid)
+    if not p:
+        return {"ok": False, "error": "not_joined"}
+    p["last_seen"] = time.time()
+
+    if action == "whFound":
+        if wh["phase"] != "playing":
+            return {"ok": True}
+        path = data.get("path")
+        try:
+            path = [int(i) for i in path]
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "bad_path"}
+        word = wordhunt.word_for_path(wh["grid"], path)
+        if not word or word not in wordhunt.WORDS:
+            return {"ok": True, "valid": False}
+        mine = wh["found"].setdefault(pid, {})
+        if word in mine:
+            return {"ok": True, "valid": False, "dup": True}
+        pts = wordhunt.score(word)
+        mine[word] = {"score": pts, "path": path}
+        wh["roundScores"][pid] = wh["roundScores"].get(pid, 0) + pts
+        p["score"] += pts
+        broadcast()
+        return {"ok": True, "valid": True, "word": word, "score": pts}
+
+    return {"ok": False, "error": "unknown_action"}
+
+
 def do_input(data, is_host=False):
     pid, action = data.get("pid"), data.get("action")
     if action in HOST_ONLY and not is_host:
@@ -3178,6 +3331,9 @@ def do_input(data, is_host=False):
 
         if isinstance(action, str) and action.startswith("ludo"):
             return do_ludo(pid, action, data, is_host)
+
+        if isinstance(action, str) and action.startswith("wh"):
+            return do_wordhunt(pid, action, data, is_host)
 
         # start / reset are game-wide controls — the laptop screen or any
         # phone can trigger them, so they don't require a valid player id.

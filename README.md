@@ -4,8 +4,8 @@ A tiny local party-game console. The **laptop** shows a menu and the game
 screen; **phones** on the same WiFi join and act as controllers.
 
 Currently playable: **Tap Race**, **Scattergories**, **Taboo**, **BlackBox**,
-**Codenames**, **Wii Sandbox**, **Imposter**, **Mafia**, and **Ludo**. More
-games are stubbed on the menu as "Coming soon".
+**Codenames**, **Wii Sandbox**, **Imposter**, **Mafia**, **Ludo**, and
+**Word Hunt**. More games are stubbed on the menu as "Coming soon".
 
 No dependencies — just Python 3 (stdlib only).
 
@@ -228,6 +228,29 @@ order); anyone after that spectates. The laptop draws the shared board.
 - Reaching the final home needs an **exact** roll. **First player to get all
   four tokens home wins.** The host can **End game** early (furthest-along
   player wins) or start a **New game** with the same seats.
+
+## Word Hunt
+
+A Boggle-style word search for **1–20 players**, each on their own phone.
+Everyone races the same shared 4×4 letter grid for 90 seconds (configurable);
+whoever scores the most wins — no turns, no teams, just swipe.
+
+- Trace a word by dragging across **adjacent letters** (including diagonals);
+  lift your finger to submit. You can't reuse a tile within one word.
+- Scoring is by length, not letters used: 3 → 100, 4 → 400, 5 → 800,
+  6 → 1,400, 7 → 1,800, 8+ → 2,200. Finding `CAT`, then `CATS`, then `CATER`
+  on the same cluster of letters stacks fast.
+- Every valid find scores instantly — no waiting for round end — and the
+  **same word can't be scored twice** by one player, even via a different
+  path. Everyone's own word list stays private until the round ends; only
+  running scores are visible live, then the full recap is revealed.
+- Words are checked against a bundled ~170k-word dictionary
+  (`wordhunt_words.txt`, derived from the public-domain ENABLE word list).
+  Boards are letter-frequency weighted with 5–7 guaranteed vowels so every
+  grid is actually playable.
+- The host can set the round length, **Reset scores** to start a fresh
+  tally, or run back-to-back rounds — the leaderboard's lifetime totals
+  persist across rounds until reset.
 
 ## Run
 

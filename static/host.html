@@ -470,6 +470,40 @@
   .lu-seat .prog { font-variant-numeric: tabular-nums; color: #94a3b8; }
   .lu-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; margin-top: 0.5rem; }
 
+  /* --- Word Hunt --- */
+  #view-wordhunt { width: min(1040px, 100%); display: flex; flex-direction: column; align-items: center; }
+  #view-wordhunt h1 { text-align: center; }
+  .wh-wrap { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; align-items: flex-start; width: 100%; }
+  .wh-boardbox { flex: 0 0 auto; width: min(420px, 90vw); display: flex; flex-direction: column; align-items: center; gap: 0.8rem; }
+  .wh-timer { font-size: clamp(2rem, 6vw, 3rem); font-weight: 900; font-variant-numeric: tabular-nums; color: #e2e8f0; }
+  .wh-timer.low { color: #f87171; }
+  .wh-grid { width: 100%; aspect-ratio: 1; display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 0.6rem; background: #0b1120; padding: 0.6rem; border-radius: 1rem; box-shadow: 0 10px 40px rgba(0,0,0,0.45); }
+  .wh-tile { display: grid; place-items: center; background: #1e293b; border-radius: 0.6rem;
+    font-size: clamp(1.5rem, 4vw, 2.4rem); font-weight: 900; color: #f1f5f9; }
+  .wh-side { flex: 1 1 300px; min-width: 260px; display: flex; flex-direction: column; gap: 0.8rem; }
+  .wh-lb { display: flex; flex-direction: column; gap: 0.4rem; }
+  .wh-lb-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.7rem;
+    border-radius: 0.6rem; background: #1e293b; }
+  .wh-lb-row .dot { width: 0.9rem; height: 0.9rem; border-radius: 50%; flex: 0 0 auto; }
+  .wh-lb-row .nm { font-weight: 800; flex: 1; }
+  .wh-lb-row.off { opacity: 0.45; }
+  .wh-lb-row .wc { color: #64748b; font-size: 0.85rem; }
+  .wh-lb-row .pts { font-variant-numeric: tabular-nums; font-weight: 800; color: #e2e8f0; }
+  .wh-lb-row .delta { color: #4ade80; font-size: 0.9rem; margin-left: 0.4rem; }
+  .wh-controls { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; margin-top: 0.3rem; }
+  .wh-setrow { display: flex; align-items: center; justify-content: center; gap: 0.6rem; color: #94a3b8; }
+  .wh-setrow input { width: 4.5rem; text-align: center; font-size: 1.05rem; padding: 0.4rem;
+    border-radius: 0.5rem; border: 1px solid #334155; background: #111827; color: #e2e8f0; }
+  .wh-recap { display: flex; flex-direction: column; gap: 0.7rem; width: 100%; }
+  .wh-recap-player { background: #1e293b; border-radius: 0.7rem; padding: 0.6rem 0.8rem; }
+  .wh-recap-player .hd { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; margin-bottom: 0.35rem; }
+  .wh-recap-player .hd .dot { width: 0.8rem; height: 0.8rem; border-radius: 50%; flex: 0 0 auto; }
+  .wh-recap-player .words { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .wh-word-chip { background: #0f172a; border-radius: 0.4rem; padding: 0.2rem 0.5rem; font-size: 0.85rem;
+    font-weight: 700; color: #cbd5e1; }
+  .wh-word-chip b { color: #4ade80; font-weight: 800; }
+
   /* --- Imposter --- */
   #view-imposter { width: min(1000px, 100%); display: flex; flex-direction: column; align-items: center; }
   #view-imposter h1 { text-align: center; }
@@ -1045,6 +1079,32 @@
     </div>
   </div>
 
+  <!-- ============ WORD HUNT ============ -->
+  <div id="view-wordhunt" hidden>
+    <h1>Word Hunt<span></span></h1>
+    <div class="wh-wrap">
+      <div class="wh-boardbox">
+        <div class="wh-timer" id="wh-timer">0:90</div>
+        <div class="wh-grid" id="wh-grid"></div>
+        <div class="wh-setrow" id="wh-setrow" hidden>
+          Round length
+          <input id="wh-seconds" type="number" min="30" max="300" step="5" value="90">
+          seconds
+        </div>
+        <div class="wh-controls">
+          <button class="btn" id="wh-start" type="button" hidden>Start round</button>
+          <button class="btn ghost" id="wh-lobby" type="button" hidden>Back to lobby</button>
+          <button class="btn ghost" id="wh-end" type="button" hidden>End round</button>
+          <button class="btn ghost" id="wh-reset" type="button" hidden>Reset scores</button>
+        </div>
+      </div>
+      <div class="wh-side">
+        <div class="wh-lb" id="wh-lb"></div>
+        <div class="wh-recap" id="wh-recap"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="tb-flash" id="tb-flash"></div>
 
 <script>
@@ -1150,7 +1210,7 @@ let lastState = null;
 function render(s) {
   lastState = s;
   renderRoster(s);
-  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo"].includes(s.game)) {
+  if (!leaving && !["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt"].includes(s.game)) {
     location.href = "/"; return;
   }
   $("view-tap").hidden = s.game !== "tap-race";
@@ -1162,6 +1222,7 @@ function render(s) {
   $("view-imposter").hidden = s.game !== "imposter";
   $("view-mafia").hidden = s.game !== "mafia";
   $("view-ludo").hidden = s.game !== "ludo";
+  $("view-wordhunt").hidden = s.game !== "word-hunt";
   if (s.game === "tap-race") renderTap(s);
   else if (s.game === "scattergories") renderScat(s);
   else if (s.game === "taboo") renderTaboo(s);
@@ -1171,6 +1232,7 @@ function render(s) {
   else if (s.game === "imposter") renderImposter(s);
   else if (s.game === "mafia") renderMafia(s);
   else if (s.game === "ludo") renderLudo(s);
+  else if (s.game === "word-hunt") renderWordHunt(s);
 }
 
 // ---- players panel: kick anyone back to the join screen ----
@@ -2305,6 +2367,80 @@ $("lu-again").addEventListener("click", () => post({ action: "ludoNewGame" }));
 $("lu-lobby").addEventListener("click", () => post({ action: "ludoLobby" }));
 $("lu-end").addEventListener("click", () => { if (confirm("End the game now?")) post({ action: "ludoEndGame" }); });
 
+// ================= WORD HUNT =================
+let whTimerRAF = null;
+function whTick(wh) {
+  if (whTimerRAF) cancelAnimationFrame(whTimerRAF);
+  const loop = () => {
+    if (!lastState || lastState.game !== "word-hunt" || lastState.wordhunt.phase !== "playing") return;
+    const remain = (wh.endsAt * 1000 - (Date.now() + clockOffset)) / 1000;
+    const el = $("wh-timer");
+    el.textContent = fmt(remain);
+    el.classList.toggle("low", remain <= 15);
+    if (remain <= 0) { post({ action: "whEndRound" }); return; }   // backup for the server
+    whTimerRAF = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function whLbRow(r) {
+  return `<div class="wh-lb-row${r.connected === false ? " off" : ""}">
+    <span class="dot" style="background:${r.color}"></span>
+    <span class="nm">${esc(r.name)}</span>
+    <span class="wc">${r.wordCount} word${r.wordCount === 1 ? "" : "s"}</span>
+    <span class="pts">${r.total}${r.roundScore ? `<span class="delta">+${r.roundScore}</span>` : ""}</span>
+  </div>`;
+}
+
+function renderWordHunt(s) {
+  const wh = s.wordhunt; if (!wh) return;
+  const lobby = wh.phase === "lobby", playing = wh.phase === "playing", review = wh.phase === "review";
+  clockOffset = wh.serverNow * 1000 - Date.now();
+
+  $("wh-grid").innerHTML = (wh.grid.length ? wh.grid : Array(16).fill(""))
+    .map(l => `<div class="wh-tile">${esc(l)}</div>`).join("");
+
+  if (playing) {
+    whTick(wh);
+  } else {
+    if (whTimerRAF) cancelAnimationFrame(whTimerRAF);
+    $("wh-timer").textContent = fmt(lobby ? wh.seconds : 0);
+    $("wh-timer").classList.remove("low");
+  }
+
+  $("wh-setrow").hidden = !lobby;
+  $("wh-seconds").value = wh.seconds;
+  $("wh-start").hidden = !(lobby || review);
+  $("wh-start").textContent = review ? "Play again" : "Start round";
+  $("wh-lobby").hidden = !review;
+  $("wh-end").hidden = !playing;
+  $("wh-reset").hidden = !(lobby || review);
+
+  $("wh-lb").innerHTML = wh.leaderboard.length
+    ? wh.leaderboard.map(whLbRow).join("")
+    : '<div class="empty">Waiting for players to join…</div>';
+
+  $("wh-recap").innerHTML = "";
+  if (review && wh.recap) {
+    $("wh-recap").innerHTML = [...wh.recap]
+      .sort((a, b) => b.words.reduce((n, w) => n + w.score, 0) - a.words.reduce((n, w) => n + w.score, 0))
+      .map(r => `<div class="wh-recap-player">
+        <div class="hd"><span class="dot" style="background:${r.color}"></span>${esc(r.name)}</div>
+        <div class="words">${r.words.length
+          ? r.words.map(w => `<span class="wh-word-chip">${esc(w.word)} <b>+${w.score}</b></span>`).join("")
+          : '<span class="wh-word-chip">no words found</span>'}</div>
+      </div>`).join("");
+  }
+}
+$("wh-start").addEventListener("click", () => post({ action: "whStart" }));
+$("wh-lobby").addEventListener("click", () => post({ action: "whLobby" }));
+$("wh-end").addEventListener("click", () => { if (confirm("End the round now?")) post({ action: "whEndRound" }); });
+$("wh-reset").addEventListener("click", () => { if (confirm("Reset every player's score to 0?")) post({ action: "whResetScores" }); });
+$("wh-seconds").addEventListener("change", () => {
+  const v = parseInt($("wh-seconds").value, 10);
+  if (v) post({ action: "whSet", key: "seconds", value: v });
+});
+
 // ---- live updates: poll /state (works through any proxy / tunnel; SSE didn't) ----
 function hostPollDelay() {
   const s = lastState;
@@ -2314,6 +2450,7 @@ function hostPollDelay() {
   if (s && s.game === "imposter") return 500;
   if (s && s.game === "mafia") return 500;
   if (s && s.game === "ludo") return 400;
+  if (s && s.game === "word-hunt" && s.wordhunt && s.wordhunt.phase === "playing") return 350;
   return 550;
 }
 async function pollHost() {

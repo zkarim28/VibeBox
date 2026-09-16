@@ -459,6 +459,29 @@
     display: grid; place-items: center; font-size: 2rem; font-weight: 900; margin: 0 auto; }
   .lu-hint { text-align: center; color: #64748b; font-size: 0.9rem; }
 
+  /* --- Word Hunt --- */
+  #wordhunt { width: 100%; max-width: 420px; margin: 0 auto; padding: 0 0.5rem 2rem; display: flex; flex-direction: column; gap: 0.7rem; align-items: center; }
+  .wh-top { display: flex; align-items: center; justify-content: center; gap: 1.2rem; }
+  .wh-timer { font-size: clamp(1.6rem, 6vw, 2.2rem); font-weight: 900; font-variant-numeric: tabular-nums; }
+  .wh-timer.low { color: #f87171; }
+  .wh-score { font-size: clamp(1.6rem, 6vw, 2.2rem); font-weight: 900; color: #4ade80; font-variant-numeric: tabular-nums; }
+  .wh-preview { min-height: 1.6rem; font-size: 1.3rem; font-weight: 900; letter-spacing: 0.08em; color: #f1f5f9; }
+  .wh-preview .pts { color: #4ade80; font-size: 1rem; margin-left: 0.4rem; }
+  .wh-gridwrap { position: relative; width: 100%; max-width: 360px; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .wh-grid { position: relative; width: 100%; aspect-ratio: 1; display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 0.55rem; background: #0b1120; padding: 0.55rem; border-radius: 1rem; z-index: 1; }
+  .wh-tile { display: grid; place-items: center; background: #1e293b; border-radius: 0.55rem;
+    font-size: clamp(1.4rem, 6vw, 2rem); font-weight: 900; color: #f1f5f9; transition: background 0.1s, transform 0.1s; }
+  .wh-tile.on { background: #0369a1; transform: scale(0.94); }
+  .wh-tile.ok { background: #16a34a; }
+  .wh-tile.bad { background: #dc2626; }
+  .wh-trail { position: absolute; inset: 0; pointer-events: none; z-index: 2; width: 100%; height: 100%; }
+  .wh-words { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; width: 100%; max-height: 6.5rem; overflow-y: auto; }
+  .wh-word-chip { background: #1e293b; border-radius: 0.4rem; padding: 0.25rem 0.55rem; font-size: 0.85rem;
+    font-weight: 700; color: #cbd5e1; white-space: nowrap; }
+  .wh-word-chip b { color: #4ade80; }
+  .wh-msg { text-align: center; color: #94a3b8; }
+
   /* --- Imposter --- */
   #imposter { width: 100%; max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.9rem; padding-bottom: 2rem; }
   .imp-role { text-align: center; border-radius: 0.9rem; padding: 1.1rem 1rem; }
@@ -907,6 +930,22 @@
     <p class="lu-hint" id="lu-hint" hidden>Tap one of your glowing tokens to move it.</p>
   </div>
 
+  <!-- ===== WORD HUNT ===== -->
+  <div id="wordhunt" hidden>
+    <p class="wh-msg" id="wh-wait" hidden>Waiting for the host to start…</p>
+    <div class="wh-top" id="wh-top" hidden>
+      <div class="wh-timer" id="wh-timer">0:90</div>
+      <div class="wh-score" id="wh-score">0</div>
+    </div>
+    <div class="wh-preview" id="wh-preview" hidden>&nbsp;</div>
+    <div class="wh-gridwrap" id="wh-gridwrap" hidden>
+      <div class="wh-grid" id="wh-grid"></div>
+      <svg class="wh-trail" id="wh-trail" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="wh-words" id="wh-words"></div>
+    <div class="wh-msg" id="wh-review" hidden></div>
+  </div>
+
   <!-- ===== MAFIA ===== -->
   <div id="mafia" hidden>
     <div class="mf-role" id="mf-role" hidden>
@@ -1157,7 +1196,8 @@ function setView(game) {
   $("imposter").hidden = game !== "imposter";
   $("mafia").hidden = game !== "mafia";
   $("ludo").hidden = game !== "ludo";
-  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo"].includes(game);
+  $("wordhunt").hidden = game !== "word-hunt";
+  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
   if (game === "wii-sandbox") wiiEnsureLoop();
   else wiiMaybeGoHome(game);   // left Wii on the https twin? go back to :8000
@@ -2300,6 +2340,8 @@ async function pollState() {
       renderMafia(s);
     } else if (s.game === "ludo") {
       renderLudo(s);
+    } else if (s.game === "word-hunt") {
+      renderWordHunt(s);
     }
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -2314,6 +2356,7 @@ function s_poll_delay() {
   if (currentGame === "wii-sandbox") return 500;
   if (currentGame === "mafia") return 500;
   if (currentGame === "ludo") return 400;
+  if (currentGame === "word-hunt") return whPhase === "playing" ? 300 : 500;
   return 500;
 }
 
@@ -2587,6 +2630,157 @@ $("lu-board").addEventListener("click", e => {
   const t = e.target.closest(".lu-move");
   if (t && Date.now() - luMovedAt > 700) { luMovedAt = Date.now(); send("ludoMove", { token: +t.dataset.token }); }
 });
+
+// ================= WORD HUNT =================
+let whPhase = null, whEndsAt = 0, whGrid = [], whTimerRAF = null;
+let whPath = [], whDragging = false;
+
+function whCellEl(i) { return $("wh-grid").querySelector(`[data-i="${i}"]`); }
+
+function whAdjacent(a, b) {
+  const ar = (a / 4) | 0, ac = a % 4, br = (b / 4) | 0, bc = b % 4;
+  return a !== b && Math.abs(ar - br) <= 1 && Math.abs(ac - bc) <= 1;
+}
+
+function whBuildGrid() {
+  $("wh-grid").innerHTML = whGrid.map((l, i) => `<div class="wh-tile" data-i="${i}">${esc(l)}</div>`).join("");
+}
+
+function whDrawTrail() {
+  const svg = $("wh-trail");
+  if (whPath.length < 2) { svg.innerHTML = ""; return; }
+  const wrap = $("wh-gridwrap").getBoundingClientRect();
+  const pts = whPath.map(i => {
+    const r = whCellEl(i).getBoundingClientRect();
+    return (r.left + r.width / 2 - wrap.left) + "," + (r.top + r.height / 2 - wrap.top);
+  }).join(" ");
+  svg.setAttribute("viewBox", `0 0 ${wrap.width} ${wrap.height}`);
+  svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="3"
+    stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>`;
+}
+
+function whUpdatePreview() {
+  const el = $("wh-preview");
+  const word = whPath.map(i => whGrid[i]).join("");
+  el.innerHTML = word || "&nbsp;";
+}
+
+function whClearPath() {
+  whPath.forEach(i => { const el = whCellEl(i); if (el) el.classList.remove("on", "ok", "bad"); });
+  whPath = [];
+  whDragging = false;
+  whDrawTrail();
+  whUpdatePreview();
+}
+
+function whCellAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const tile = el && el.closest && el.closest(".wh-tile");
+  if (!tile || !$("wh-grid").contains(tile)) return null;
+  return +tile.dataset.i;
+}
+
+function whPointerDown(e) {
+  if (whPhase !== "playing") return;
+  const i = whCellAt(e.clientX, e.clientY);
+  if (i == null) return;
+  whClearPath();
+  whDragging = true;
+  whPath = [i];
+  whCellEl(i).classList.add("on");
+  whDrawTrail(); whUpdatePreview();
+  try { $("wh-gridwrap").setPointerCapture(e.pointerId); } catch (err) {}
+  e.preventDefault();
+}
+
+function whPointerMove(e) {
+  if (!whDragging) return;
+  const i = whCellAt(e.clientX, e.clientY);
+  if (i == null) return;
+  const last = whPath[whPath.length - 1];
+  if (i === last) return;
+  if (whPath.length >= 2 && i === whPath[whPath.length - 2]) {
+    // slid back onto the previous tile — undo one step
+    whCellEl(last).classList.remove("on");
+    whPath.pop();
+    whDrawTrail(); whUpdatePreview();
+    return;
+  }
+  if (whPath.includes(i) || !whAdjacent(last, i)) return;
+  whPath.push(i);
+  whCellEl(i).classList.add("on");
+  whDrawTrail(); whUpdatePreview();
+}
+
+async function whPointerUp() {
+  if (!whDragging) return;
+  whDragging = false;
+  const path = whPath.slice();
+  if (path.length < 3) { whClearPath(); return; }
+  const r = await send("whFound", { path });
+  const cls = r && r.valid ? "ok" : "bad";
+  path.forEach(i => { const el = whCellEl(i); if (el) { el.classList.remove("on"); el.classList.add(cls); } });
+  if (navigator.vibrate) navigator.vibrate(r && r.valid ? 12 : 40);
+  setTimeout(() => path.forEach(i => { const el = whCellEl(i); if (el) el.classList.remove("ok", "bad"); }), 280);
+  whPath = [];
+  whDrawTrail(); whUpdatePreview();
+}
+
+const whGridWrap = $("wh-gridwrap");
+whGridWrap.addEventListener("pointerdown", whPointerDown);
+whGridWrap.addEventListener("pointermove", whPointerMove);
+whGridWrap.addEventListener("pointerup", whPointerUp);
+whGridWrap.addEventListener("pointercancel", whClearPath);
+
+function whTick() {
+  if (whTimerRAF) cancelAnimationFrame(whTimerRAF);
+  const loop = () => {
+    if (whPhase !== "playing") return;
+    const remain = (whEndsAt * 1000 - (Date.now() + clockOffset)) / 1000;
+    const el = $("wh-timer");
+    el.textContent = fmt(remain);
+    el.classList.toggle("low", remain <= 15);
+    whTimerRAF = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function renderWordHunt(s) {
+  const wh = s.wordhunt; if (!wh) return;
+  clockOffset = wh.serverNow * 1000 - Date.now();
+  const prevPhase = whPhase;
+  whPhase = wh.phase; whEndsAt = wh.endsAt || 0;
+  const lobby = wh.phase === "lobby", playing = wh.phase === "playing", review = wh.phase === "review";
+
+  $("wh-wait").hidden = !lobby;
+  $("wh-top").hidden = lobby;
+  $("wh-preview").hidden = !playing;
+  $("wh-gridwrap").hidden = lobby;
+  $("wh-review").hidden = !review;
+
+  if (wh.grid.length && wh.grid.join("") !== whGrid.join("")) {
+    whGrid = wh.grid.slice();
+    whBuildGrid();
+  }
+  if (prevPhase !== "playing" && playing) whClearPath();   // fresh round
+
+  if (playing) whTick();
+  else if (whTimerRAF) { cancelAnimationFrame(whTimerRAF); whTimerRAF = null; }
+  if (!playing) { $("wh-timer").textContent = fmt(lobby ? wh.seconds : 0); $("wh-timer").classList.remove("low"); }
+
+  $("wh-score").textContent = wh.myScore || 0;
+
+  const mine = wh.myWords || [];
+  $("wh-words").innerHTML = [...mine].reverse()
+    .map(w => `<span class="wh-word-chip">${esc(w.word)} <b>+${w.score}</b></span>`).join("");
+
+  if (review) {
+    const total = mine.reduce((n, w) => n + w.score, 0);
+    $("wh-review").innerHTML = mine.length
+      ? `You found <b>${mine.length}</b> word${mine.length === 1 ? "" : "s"} for <b>${total}</b> points this round.`
+      : "No words found this round — next time!";
+  }
+}
 
 // ================= MAFIA =================
 const MF_ROLE = { mafia: "Mafia", sheriff: "Sheriff", doctor: "Doctor", civilian: "Civilian" };
