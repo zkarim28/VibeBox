@@ -275,6 +275,7 @@ def status():
             "players": _players(s["port"], s["token"]) if u else None,
             "join": f"{u}/{s['code']}" if u else None,
             "host": f"{u}/?host={s['token']}" if u else None,
+            "phoneHost": f"{u}/host/play?host={s['token']}&code={s['code']}" if u else None,
         })
     if dead:
         with _lock:
@@ -304,30 +305,31 @@ PAGE = """<!doctype html><html lang="en"><head>
 :root{color-scheme:dark}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
- background:radial-gradient(1000px 700px at 50% -10%,#1e293b,#0b1120);color:#e2e8f0;
+ background:radial-gradient(1000px 700px at 50% -10%,#292540,#0c0b18);color:#f0edf9;
  min-height:100vh;padding:1.25rem;line-height:1.5}
 .wrap{max-width:520px;margin:0 auto}
-h1{font-size:1.6rem;letter-spacing:-.02em}h1 span{color:#38bdf8}
-.muted{color:#94a3b8}
+h1{font-size:1.6rem;letter-spacing:-.02em}h1 span{color:#b7a4ff}
+.muted{color:#b1abc7}
 button{font:inherit;cursor:pointer;border:0;border-radius:.7rem}
-.big{width:100%;padding:1rem;font-size:1.15rem;font-weight:800;background:#38bdf8;color:#04121c;margin-top:1rem}
+.big{width:100%;padding:1rem;font-size:1.15rem;font-weight:800;background:#b7a4ff;color:#171026;margin-top:1rem}
 .big[disabled]{filter:grayscale(.5) brightness(.6)}
 input{font:inherit;font-size:1.05rem;width:100%;padding:.8rem 1rem;border-radius:.7rem;
- border:1px solid #334155;background:#111827;color:#e2e8f0}
-.card{background:#0f172a;border:1px solid #1e293b;border-radius:.9rem;padding:1rem;margin-top:1rem}
+ border:1px solid #49415f;background:#1c1930;color:#f0edf9}
+.card{background:#171529;border:1px solid #292540;border-radius:.9rem;padding:1rem;margin-top:1rem}
 .row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
-.pill{background:#111827;border:1px solid #334155;border-radius:.5rem;padding:.35rem .6rem;
+.pill{background:#1c1930;border:1px solid #49415f;border-radius:.5rem;padding:.35rem .6rem;
  font-family:ui-monospace,Menlo,monospace;font-size:.9rem;word-break:break-all;flex:1;min-width:0}
 .qr{width:132px;height:132px;background:#fff;border-radius:.5rem;padding:.4rem;image-rendering:pixelated}
-.linkbtn{background:#1e293b;color:#e2e8f0;padding:.5rem .8rem;font-weight:700;font-size:.9rem}
+.linkbtn{background:#292540;color:#f0edf9;padding:.5rem .8rem;font-weight:700;font-size:.9rem}
 .stop{background:#7f1d1d;color:#fecaca;padding:.5rem .8rem;font-weight:800;font-size:.85rem}
 .stop:hover{background:#b91c1c;color:#fff}
 .tag{font-size:.8rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
-.tag.live{color:#4ade80}.tag.wait{color:#fbbf24}
+.tag.live{color:#78e3bc}.tag.wait{color:#fbbf24}
 .err{color:#fca5a5;min-height:1.2em;margin-top:.5rem}
-a{color:#7dd3fc}
+a{color:#d0c2ff}
 .foot{margin-top:2rem;font-size:.8rem}
-</style></head><body><div class="wrap">
+</style>
+<link rel="stylesheet" href="/theme.css"></head><body class="page-launcher"><div class="wrap">
 <h1>Vibe<span>Box</span> Launcher</h1>
 
 <div id="login" hidden>
@@ -373,6 +375,7 @@ async function refresh(){
           <div class="pill">${s.join.replace(/^https:\\/\\//,'')}</div>
           <div class="row">
             <button class="linkbtn" data-copy="${s.join}">Copy join link</button>
+            <a class="linkbtn" href="${s.phoneHost}" target="_blank" rel="noopener">Host &amp; play on phone</a>
             <a class="linkbtn" href="${s.host}" target="_blank" rel="noopener">Open host screen</a>
           </div>
         </div>
@@ -453,6 +456,14 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(b)))
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b)
+        elif path == "/theme.css":
+            with open(os.path.join(HERE, "static", "theme.css"), "rb") as f:
+                b = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/css; charset=utf-8")
+            self.send_header("Content-Length", str(len(b)))
             self.end_headers()
             self.wfile.write(b)
         elif path == "/api/status":

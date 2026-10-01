@@ -29,19 +29,19 @@ import tkinter as tk
 from tkinter import font as tkfont
 import webbrowser
 
-BG = "#0b1120"        # backdrop (mostly transparent when the platform allows)
-CARD = "#151f37"      # the bubble
-CARD_EDGE = "#2b3a5c" # hairline around the bubble
-FG = "#eef2fb"
-MUTED = "#93a1ba"
-ACCENT = "#5cc8ff"
-ACCENT_DK = "#38a9e6"
-ACCENT_INK = "#05263b"
-CHIP_PUBLIC = "#123048"
+BG = "#0c0b18"        # backdrop (mostly transparent when the platform allows)
+CARD = "#171529"      # the bubble
+CARD_EDGE = "#49415f" # hairline around the bubble
+FG = "#f0edf9"
+MUTED = "#b1abc7"
+ACCENT = "#b7a4ff"
+ACCENT_DK = "#a58beb"
+ACCENT_INK = "#171026"
+CHIP_PUBLIC = "#302748"
 DANGER = "#ff8f8f"
 GOOD = "#7fe0b6"
-BTN = "#243352"
-BTN_HOVER = "#30436a"
+BTN = "#292540"
+BTN_HOVER = "#49415f"
 
 # Base (1x) metrics — tuned on a 96-DPI / macOS display. On Linux the window
 # manager often renders point-sized fonts much larger (HiDPI panel, 125–200 %

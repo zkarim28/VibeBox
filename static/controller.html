@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Controller — Party Games</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VibeBox — Your controller</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -13,48 +13,32 @@
   }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: #0b1120; color: #e2e8f0;
+    background: #0c0b18; color: #f0edf9;
     display: flex; flex-direction: column; align-items: stretch;
     padding: env(safe-area-inset-top) 1rem env(safe-area-inset-bottom);
     -webkit-user-select: none; user-select: none;
   }
-  #scat *, #game *, #taboo *, #blackbox * { min-width: 0; }
+  #scat *, #taboo *, #blackbox * { min-width: 0; }
   #blackbox { overflow-x: hidden; overflow-x: clip; }
   [hidden] { display: none !important; }
   h1 { margin-top: 1.25rem; font-size: 1.6rem; letter-spacing: -0.02em; text-align: center; }
-  h1 span { color: #38bdf8; }
+  h1 span { color: #b7a4ff; }
 
   .join { margin: auto; width: 100%; max-width: 360px; text-align: center; }
   .join input {
     width: 100%; font-size: 1.25rem; padding: 0.9rem 1rem; border-radius: 0.8rem;
-    border: 1px solid #334155; background: #111827; color: #e2e8f0; text-align: center;
+    border: 1px solid #49415f; background: #1c1930; color: #f0edf9; text-align: center;
   }
   .join button, .act {
     width: 100%; margin-top: 1rem; font-size: 1.15rem; font-weight: 700;
-    padding: 0.9rem 1rem; border-radius: 0.8rem; border: 0; background: #38bdf8; color: #0b1120;
+    padding: 0.9rem 1rem; border-radius: 0.8rem; border: 0; background: #b7a4ff; color: #0c0b18;
   }
-  .act.secondary { background: #1e293b; color: #e2e8f0; }
+  .act.secondary { background: #292540; color: #f0edf9; }
   .err { color: #f87171; margin-top: 0.75rem; min-height: 1.2em; font-size: 0.95rem; }
 
-  #game { display: none; width: 100%; max-width: 460px; margin: 0 auto; flex: 1; flex-direction: column; }
-  #game.on { display: flex; }
-  .me { margin-top: 1rem; text-align: center; }
-  .me .who { font-size: 1.5rem; font-weight: 800; }
-  .me .status { color: #94a3b8; margin-top: 0.25rem; min-height: 1.4em; }
-  .progress { height: 0.9rem; margin-top: 0.75rem; background: #1e293b; border-radius: 999px; overflow: hidden; }
-  .progress > div { height: 100%; width: 0; transition: width 0.1s linear; }
-  .tap {
-    flex: 1; margin: 1.5rem 0; width: 100%; border-radius: 1.5rem; border: 0;
-    font-size: 3rem; font-weight: 900; letter-spacing: 0.05em; color: #0b1120;
-    box-shadow: inset 0 -8px 0 rgba(0,0,0,0.25);
-    transition: transform 0.05s ease, filter 0.05s ease; touch-action: manipulation;
-  }
-  .tap:active { transform: scale(0.97); filter: brightness(1.15); }
-  .tap:disabled { filter: grayscale(0.6) brightness(0.6); }
-
   #waiting { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 0.75rem; padding: 2rem 1rem; }
-  .wait-badge { font-size: 1.6rem; font-weight: 800; color: #4ade80; }
-  .wait-sub { color: #94a3b8; max-width: 20rem; }
+  .wait-badge { font-size: 1.6rem; font-weight: 800; color: #78e3bc; }
+  .wait-sub { color: #b1abc7; max-width: 20rem; }
 
   :where(button, input, [tabindex]):focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
@@ -63,7 +47,7 @@
   #scat { width: 100%; max-width: 520px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; }
   .sc-top {
     display: flex; align-items: center; gap: 0.75rem; padding: 0.9rem 0 0.75rem;
-    position: sticky; top: 0; background: #0b1120; z-index: 2; border-bottom: 1px solid #1e293b;
+    position: sticky; top: 0; background: #0c0b18; z-index: 2; border-bottom: 1px solid #292540;
     /* iOS Safari can leave a sticky element mid-repaint (a "hung" half frame)
        during the momentum scroll that hides the address bar, until another
        swipe nudges it — forcing this onto its own compositing layer fixes it. */
@@ -73,77 +57,77 @@
     width: 52px; height: 52px; border-radius: 50%; border: 2px dashed #cbd5e1;
     display: grid; place-items: center; font-size: 1.6rem; font-weight: 800; flex: none;
   }
-  .sc-top .lbl { color: #94a3b8; font-size: 0.9rem; }
+  .sc-top .lbl { color: #b1abc7; font-size: 0.9rem; }
   .sc-timer { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 1.5rem; font-weight: 700; }
   .sc-timer.low { color: #f87171; }
 
   .sc-form { flex: 1; padding: 0.75rem 0 2rem; }
-  .sc-field { padding: 0.7rem 0; border-bottom: 1px solid #1e293b; }
-  .sc-field label { display: block; font-size: 0.9rem; color: #94a3b8; margin-bottom: 0.35rem; }
-  .sc-field label b { color: #64748b; font-weight: 700; margin-right: 0.4rem; }
+  .sc-field { padding: 0.7rem 0; border-bottom: 1px solid #292540; }
+  .sc-field label { display: block; font-size: 0.9rem; color: #b1abc7; margin-bottom: 0.35rem; }
+  .sc-field label b { color: #928aa8; font-weight: 700; margin-right: 0.4rem; }
   .sc-field input {
     width: 100%; font-size: 1.1rem; padding: 0.6rem 0.7rem; border-radius: 0.6rem;
-    border: 1px solid #334155; background: #111827; color: #e2e8f0;
+    border: 1px solid #49415f; background: #1c1930; color: #f0edf9;
   }
   .sc-field input::placeholder {
     color: #3b4a63; font-weight: 800; letter-spacing: 0.06em; opacity: 1;
   }
 
-  .sc-msg { text-align: center; color: #94a3b8; padding: 1.5rem 1rem; }
+  .sc-msg { text-align: center; color: #b1abc7; padding: 1.5rem 1rem; }
   .sc-catname { font-size: 1.35rem; font-weight: 700; text-align: center; margin: 1rem 0 0.25rem; }
-  .sc-of { text-align: center; color: #64748b; font-size: 0.9rem; }
+  .sc-of { text-align: center; color: #928aa8; font-size: 0.9rem; }
   .vote {
     display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
-    padding: 0.8rem 0; border-bottom: 1px solid #1e293b;
+    padding: 0.8rem 0; border-bottom: 1px solid #292540;
   }
   .vote .txt { flex: 1; min-width: 6rem; font-size: 1.15rem; }
-  .vote.elim .txt { text-decoration: line-through; color: #64748b; }
-  .vote.mine { color: #94a3b8; }
+  .vote.elim .txt { text-decoration: line-through; color: #928aa8; }
+  .vote.mine { color: #b1abc7; }
   .vote .who { font-weight: 700; font-size: 0.85rem; }
   .vote .tally {
-    flex-basis: 100%; font-size: 0.85rem; color: #64748b;
+    flex-basis: 100%; font-size: 0.85rem; color: #928aa8;
     font-variant-numeric: tabular-nums; margin-top: 0.15rem;
   }
-  .vote .tally .y { color: #4ade80; font-weight: 700; }
+  .vote .tally .y { color: #78e3bc; font-weight: 700; }
   .vote .tally .n { color: #f87171; font-weight: 700; }
   .vbtn {
-    border: 1px solid #334155; background: #111827; color: #e2e8f0;
+    border: 1px solid #49415f; background: #1c1930; color: #f0edf9;
     font: inherit; font-weight: 700; padding: 0.5rem 0.9rem; border-radius: 0.55rem; cursor: pointer;
   }
   .vbtn.yes.on { background: #16a34a; border-color: #16a34a; color: #fff; }
   .vbtn.no.on  { background: #dc2626; border-color: #dc2626; color: #fff; }
-  .pill { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border: 1px solid currentColor; border-radius: 999px; padding: 0.1rem 0.45rem; }
+  .pill { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #b1abc7; border: 1px solid currentColor; border-radius: 999px; padding: 0.1rem 0.45rem; }
   .sc-done-big { text-align: center; padding: 2rem 1rem; }
-  .sc-done-big .n { font-size: 2.5rem; font-weight: 800; color: #4ade80; }
+  .sc-done-big .n { font-size: 2.5rem; font-weight: 800; color: #78e3bc; }
   .sc-board { width: 100%; max-width: 420px; margin: 1.5rem auto 0; text-align: left; }
   .sc-board-row {
     display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
-    padding: 0.55rem 0.25rem; border-bottom: 1px solid #1e293b; font-size: 1.05rem;
+    padding: 0.55rem 0.25rem; border-bottom: 1px solid #292540; font-size: 1.05rem;
   }
   .sc-board-row .who { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; overflow: hidden; }
-  .sc-board-row .rk { color: #64748b; font-weight: 700; width: 1.4rem; flex: none; }
+  .sc-board-row .rk { color: #928aa8; font-weight: 700; width: 1.4rem; flex: none; }
   .sc-board-row .nm { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sc-board-row .pts { font-variant-numeric: tabular-nums; font-weight: 800; flex: none; }
-  .sc-board-row .delta { color: #4ade80; font-size: 0.85rem; margin-left: 0.4rem; }
+  .sc-board-row .delta { color: #78e3bc; font-size: 0.85rem; margin-left: 0.4rem; }
 
   /* --- Taboo --- */
   #taboo { width: 100%; max-width: 480px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; }
   .tb-hdr {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0.8rem 0; border-bottom: 1px solid #1e293b;
-    position: sticky; top: 0; background: #0b1120; z-index: 2;
+    padding: 0.8rem 0; border-bottom: 1px solid #292540;
+    position: sticky; top: 0; background: #0c0b18; z-index: 2;
   }
   .tb-hdr .t { font-weight: 700; }
   .tb-hdr .tm { font-variant-numeric: tabular-nums; font-size: 1.4rem; font-weight: 800; }
   .tb-hdr .tm.low { color: #f87171; }
 
   .tbc-card {
-    background: #f8fafc; color: #0b1120; border-radius: 1rem;
+    background: #f8fafc; color: #0c0b18; border-radius: 1rem;
     padding: 1.25rem 1rem 1.5rem; text-align: center; margin: 1rem 0;
   }
   .tbc-card .g { font-size: clamp(1.8rem, 9vw, 2.6rem); font-weight: 900; text-transform: uppercase; word-break: break-word; }
-  .tbc-card hr { border: 0; border-top: 2px solid #0b1120; width: 55%; margin: 0.7rem auto; }
-  .tbc-card .l { font-size: 0.7rem; letter-spacing: 0.2em; font-weight: 800; color: #64748b; }
+  .tbc-card hr { border: 0; border-top: 2px solid #0c0b18; width: 55%; margin: 0.7rem auto; }
+  .tbc-card .l { font-size: 0.7rem; letter-spacing: 0.2em; font-weight: 800; color: #928aa8; }
   .tbc-card ul { list-style: none; margin-top: 0.4rem; }
   .tbc-card li { font-size: clamp(1rem, 4.5vw, 1.4rem); font-weight: 700; color: #dc2626; padding: 0.1rem 0; }
 
@@ -158,24 +142,24 @@
   .tb-big.buzz { background: #dc2626; }
   .tb-big:disabled { filter: grayscale(0.5) brightness(0.55); }
   .tb-skip {
-    width: 100%; margin-top: 0.8rem; background: #1e293b; color: #e2e8f0;
-    border: 1px solid #334155; border-radius: 0.9rem; padding: 0.9rem;
+    width: 100%; margin-top: 0.8rem; background: #292540; color: #f0edf9;
+    border: 1px solid #49415f; border-radius: 0.9rem; padding: 0.9rem;
     font: inherit; font-weight: 700; font-size: 1.05rem; cursor: pointer;
   }
   .tb-skip:disabled { opacity: 0.5; }
 
   .tb-teambtns { display: flex; flex-direction: column; gap: 1rem; margin: auto 0; }
-  .tb-teambtns p { text-align: center; color: #94a3b8; }
+  .tb-teambtns p { text-align: center; color: #b1abc7; }
   .tb-teambtns button {
-    padding: 1.5rem; border-radius: 1rem; border: 2px solid #334155;
-    background: #111827; color: #e2e8f0; font: inherit; font-size: 1.4rem; font-weight: 800; cursor: pointer;
+    padding: 1.5rem; border-radius: 1rem; border: 2px solid #49415f;
+    background: #1c1930; color: #f0edf9; font: inherit; font-size: 1.4rem; font-weight: 800; cursor: pointer;
   }
-  .tb-teambtns button.sel { border-color: #38bdf8; background: #0e1b2e; }
+  .tb-teambtns button.sel { border-color: #b7a4ff; background: #0e1b2e; }
 
-  .tb-msg { text-align: center; color: #94a3b8; margin: auto 0; padding: 2rem 1rem; }
-  .tb-msg .big { font-size: 1.7rem; font-weight: 800; color: #e2e8f0; margin-bottom: 0.5rem; }
+  .tb-msg { text-align: center; color: #b1abc7; margin: auto 0; padding: 2rem 1rem; }
+  .tb-msg .big { font-size: 1.7rem; font-weight: 800; color: #f0edf9; margin-bottom: 0.5rem; }
   .tb-cready-num {
-    font-size: 5.5rem; font-weight: 900; line-height: 1; color: #38bdf8;
+    font-size: 5.5rem; font-weight: 900; line-height: 1; color: #b7a4ff;
     font-variant-numeric: tabular-nums; margin: 0.75rem 0;
   }
   #conn {
@@ -188,9 +172,9 @@
   #blackbox { width: 100%; max-width: 520px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; }
   .bb-top {
     display: flex; align-items: baseline; gap: 0.6rem; padding: 0.85rem 0 0.6rem;
-    position: sticky; top: 0; background: #0b1120; z-index: 3; border-bottom: 1px solid #1e293b;
+    position: sticky; top: 0; background: #0c0b18; z-index: 3; border-bottom: 1px solid #292540;
   }
-  .bb-top .lbl { color: #94a3b8; font-size: 0.85rem; }
+  .bb-top .lbl { color: #b1abc7; font-size: 0.85rem; }
   .bb-top .tmr { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 1.35rem; font-weight: 700; }
   .bb-top .tmr.low { color: #f87171; }
   .bb-prompt {
@@ -198,8 +182,8 @@
     padding: 1rem 1.1rem; font-size: 1.15rem; font-weight: 650; line-height: 1.4;
     margin: 0.85rem 0 0.4rem;
   }
-  .bb-prompt b { color: #38bdf8; }         /* the blank */
-  .bb-pick { color: #94a3b8; font-size: 0.85rem; margin-bottom: 0.6rem; }
+  .bb-prompt b { color: #b7a4ff; }         /* the blank */
+  .bb-pick { color: #b1abc7; font-size: 0.85rem; margin-bottom: 0.6rem; }
 
   /* the hand you hold: cards fanned in an arc along the bottom */
   #bb-choose { display: flex; flex-direction: column; flex: 1; overflow-x: clip; }
@@ -215,7 +199,7 @@
     width: min(44vw, 168px); aspect-ratio: 5 / 7;
     margin-left: calc(min(44vw, 168px) / -2);
     touch-action: pan-y;                      /* browser never pans sideways off our swipe */
-    background: #f7f8fa; color: #0b1120;
+    background: #f7f8fa; color: #0c0b18;
     border-radius: 0.9rem; padding: 0.9rem 0.9rem 2rem;
     box-shadow: -3px 3px 12px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.55) inset;
     font-weight: 650; text-align: left;
@@ -274,7 +258,7 @@
   .bb-tray { display: flex; gap: 0.5rem; justify-content: center; min-height: 4.4rem; margin-bottom: 0.4rem; }
   .bb-tray:empty { display: none; }
   .bb-traycard {
-    position: relative; background: #f7f8fa; color: #0b1120; border: 2px solid #22c55e;
+    position: relative; background: #f7f8fa; color: #0c0b18; border: 2px solid #22c55e;
     border-radius: 0.6rem; padding: 0.55rem 0.6rem; width: 46%; max-width: 12rem;
     font-size: 0.85rem; font-weight: 650; line-height: 1.2; max-height: 4.2rem; overflow: hidden;
   }
@@ -286,27 +270,27 @@
   .bb-hint-tap { text-align: center; color: #fff; font-weight: 700; font-size: 0.85rem; margin-top: 0.6rem; }
   .bb-bigbtn {
     width: 100%; margin-top: 0.75rem; font-size: 1.1rem; font-weight: 800;
-    padding: 0.95rem 1rem; border-radius: 0.85rem; border: 0; background: #38bdf8; color: #05070d;
+    padding: 0.95rem 1rem; border-radius: 0.85rem; border: 0; background: #b7a4ff; color: #05070d;
   }
   .bb-bigbtn[disabled] { filter: grayscale(0.7) brightness(0.7); }
-  .bb-bigbtn.ghost { background: #1e293b; color: #e2e8f0; font-weight: 700; }
+  .bb-bigbtn.ghost { background: #292540; color: #f0edf9; font-weight: 700; }
 
-  .bb-msg { text-align: center; color: #94a3b8; margin: auto 0; padding: 2rem 0.5rem; }
-  .bb-msg .big { font-size: 1.5rem; font-weight: 800; color: #e2e8f0; margin-bottom: 0.4rem; }
+  .bb-msg { text-align: center; color: #b1abc7; margin: auto 0; padding: 2rem 0.5rem; }
+  .bb-msg .big { font-size: 1.5rem; font-weight: 800; color: #f0edf9; margin-bottom: 0.4rem; }
   .bb-msg .crown { font-size: 2.5rem; }
 
   .bb-plays { display: flex; flex-direction: column; gap: 0.6rem; }
   .bb-play {
-    display: block; width: 100%; text-align: left; background: #111827;
+    display: block; width: 100%; text-align: left; background: #1c1930;
     border: 2px solid #253048; border-radius: 0.8rem;
-    padding: 0.85rem 0.95rem; font-size: 1rem; line-height: 1.38; color: #e2e8f0;
+    padding: 0.85rem 0.95rem; font-size: 1rem; line-height: 1.38; color: #f0edf9;
     overflow-wrap: anywhere; font: inherit;
   }
-  .bb-play.face { background: #f8fafc; color: #0b1120; font-weight: 600; }
+  .bb-play.face { background: #f8fafc; color: #0c0b18; font-weight: 600; }
   .bb-play b { font-weight: 800; }                 /* the player's response, bolded */
   .bb-play.mine { border: 4px solid #0a84ff; box-shadow: 0 0 0 2px rgba(10,132,255,0.35); }  /* your own card — bold electric-blue outline */
   .bb-play.pick { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.35); }
-  .bb-play.win { border: 3px solid #4ade80; background: #dcfce7; color: #052e16; }
+  .bb-play.win { border: 3px solid #78e3bc; background: #dcfce7; color: #052e16; }
   .bb-play.recon { opacity: 0.55; }
   .bb-play .who {
     display: block; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.03em;
@@ -314,7 +298,7 @@
   }
   .bb-play .recon-tag { color: #fbbf24; font-weight: 700; }
   .bb-scores { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; margin-top: 1rem; }
-  .bb-chip { background: #1e293b; border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.9rem; font-weight: 700; }
+  .bb-chip { background: #292540; border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.9rem; font-weight: 700; }
   .bb-chip.recon { opacity: 0.5; }
   #bb-reveal { flex: 1; overflow-y: auto; padding: 0.25rem 0 1rem; }
 
@@ -322,7 +306,7 @@
   #codenames { width: 100%; max-width: 560px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; }
   #codenames .cn-top {
     display: flex; align-items: center; gap: 0.5rem; padding: 0.7rem 0 0.55rem;
-    position: sticky; top: 0; background: #0b1120; z-index: 3; border-bottom: 1px solid #1e293b;
+    position: sticky; top: 0; background: #0c0b18; z-index: 3; border-bottom: 1px solid #292540;
   }
   #codenames .cn-top .sc {
     flex: 0 0 auto; width: auto; font-weight: 800; font-size: 1.15rem;
@@ -364,32 +348,32 @@
   .cn-clue-form { display: flex; gap: 0.5rem; margin-top: 0.7rem; }
   .cn-clue-form input[type=text] {
     flex: 1; font-size: 1.05rem; padding: 0.7rem 0.8rem; border-radius: 0.6rem;
-    border: 1px solid #334155; background: #111827; color: #e2e8f0; text-transform: uppercase;
+    border: 1px solid #49415f; background: #1c1930; color: #f0edf9; text-transform: uppercase;
   }
   .cn-clue-form input[type=number] {
     width: 3.4rem; font-size: 1.05rem; padding: 0.7rem 0.4rem; text-align: center;
-    border-radius: 0.6rem; border: 1px solid #334155; background: #111827; color: #e2e8f0;
+    border-radius: 0.6rem; border: 1px solid #49415f; background: #1c1930; color: #f0edf9;
   }
   .cn-btn {
     width: 100%; margin-top: 0.6rem; font-size: 1.05rem; font-weight: 800;
-    padding: 0.85rem; border-radius: 0.7rem; border: 0; background: #38bdf8; color: #05070d;
+    padding: 0.85rem; border-radius: 0.7rem; border: 0; background: #b7a4ff; color: #05070d;
   }
   .cn-btn[disabled] { filter: grayscale(0.6) brightness(0.65); }
-  .cn-btn.ghost { background: #1e293b; color: #e2e8f0; font-weight: 700; }
+  .cn-btn.ghost { background: #292540; color: #f0edf9; font-weight: 700; }
   .cn-btn.red { background: #ef4444; color: #fff; } .cn-btn.blue { background: #3b82f6; color: #fff; }
 
   .cn-picker { position: fixed; inset: 0; background: rgba(3,7,13,0.75); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
-  .cn-picker .box { background: #0f172a; border: 1px solid #334155; border-radius: 1rem; padding: 1.25rem; width: 100%; max-width: 20rem; text-align: center; }
+  .cn-picker .box { background: #171529; border: 1px solid #49415f; border-radius: 1rem; padding: 1.25rem; width: 100%; max-width: 20rem; text-align: center; }
   .cn-picker .box h3 { font-size: 1.1rem; margin-bottom: 0.9rem; }
   .cn-picker .box button { display: block; width: 100%; margin-top: 0.5rem; padding: 0.8rem; border: 0; border-radius: 0.6rem; font-weight: 800; font-size: 1rem; }
 
   .cn-lobby { text-align: center; padding: 1.5rem 0.5rem; }
   .cn-lobby .big { font-size: 1.5rem; font-weight: 800; margin: 0.5rem 0; }
   .cn-teamsel { display: flex; gap: 0.6rem; margin: 1rem 0; }
-  .cn-teamsel button { flex: 1; padding: 1rem; border: 2px solid transparent; border-radius: 0.7rem; font-weight: 800; font-size: 1.05rem; background: #1e293b; color: #e2e8f0; }
+  .cn-teamsel button { flex: 1; padding: 1rem; border: 2px solid transparent; border-radius: 0.7rem; font-weight: 800; font-size: 1.05rem; background: #292540; color: #f0edf9; }
   .cn-teamsel button.red.on { background: #7f1d1d; color: #fff; border-color: #ef4444; }
   .cn-teamsel button.blue.on { background: #1e3a8a; color: #fff; border-color: #3b82f6; }
-  .cn-roster { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.6rem; color: #94a3b8; font-size: 0.95rem; }
+  .cn-roster { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.6rem; color: #b1abc7; font-size: 0.95rem; }
 
   /* --- Wii Sandbox --- */
   #wii { flex: 1; display: flex; flex-direction: column; min-height: 82vh; min-height: 82dvh; }
@@ -397,31 +381,31 @@
   .wii-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
     text-align: center; padding: 1.5rem 1.25rem; gap: 0.9rem; }
   .wii-screen h2 { font-size: 1.35rem; line-height: 1.3; }
-  .wii-screen p { color: #94a3b8; max-width: 22rem; }
-  .wii-sub { font-size: 0.85rem; color: #fbbf24; background: #1e293b; border-radius: 0.6rem; padding: 0.6rem 0.8rem; }
+  .wii-screen p { color: #b1abc7; max-width: 22rem; }
+  .wii-sub { font-size: 0.85rem; color: #fbbf24; background: #292540; border-radius: 0.6rem; padding: 0.6rem 0.8rem; }
   .wii-emoji { font-size: 3.5rem; }
   .wii-primary { width: 100%; max-width: 20rem; font-size: 1.15rem; font-weight: 800;
-    padding: 1rem; border-radius: 0.9rem; border: 0; background: #38bdf8; color: #05070d; }
+    padding: 1rem; border-radius: 0.9rem; border: 0; background: #b7a4ff; color: #05070d; }
   .wii-primary[disabled] { filter: grayscale(0.6) brightness(0.6); }
-  .wii-ghost { background: #1e293b; color: #e2e8f0; border: 0; font-weight: 700;
+  .wii-ghost { background: #292540; color: #f0edf9; border: 0; font-weight: 700;
     padding: 0.7rem 1.2rem; border-radius: 0.7rem; font-size: 0.95rem; }
   .wii-note { min-height: 1.3em; font-size: 0.9rem; color: #fbbf24; }
 
   .wii-level { position: relative; width: 60vw; max-width: 260px; aspect-ratio: 1;
-    border-radius: 50%; border: 2px solid #334155; background: #0f172a; }
+    border-radius: 50%; border: 2px solid #49415f; background: #171529; }
   .wii-target { position: absolute; left: 50%; top: 50%; width: 28%; aspect-ratio: 1;
-    transform: translate(-50%,-50%); border: 2px dashed #38bdf8; border-radius: 50%; }
+    transform: translate(-50%,-50%); border: 2px dashed #b7a4ff; border-radius: 50%; }
   .wii-bubble { position: absolute; left: 50%; top: 50%; width: 22%; aspect-ratio: 1;
-    margin: -11% 0 0 -11%; border-radius: 50%; background: #38bdf8;
+    margin: -11% 0 0 -11%; border-radius: 50%; background: #b7a4ff;
     box-shadow: 0 0 16px rgba(56,189,248,0.7); transition: transform 0.08s linear; }
 
   .wii-topbar { display: flex; align-items: center; justify-content: space-between;
-    padding: 0.7rem 0.2rem; color: #94a3b8; font-size: 0.95rem; }
-  .wii-recenter { background: #1e293b; color: #e2e8f0; border: 0; border-radius: 0.6rem;
+    padding: 0.7rem 0.2rem; color: #b1abc7; font-size: 0.95rem; }
+  .wii-recenter { background: #292540; color: #f0edf9; border: 0; border-radius: 0.6rem;
     padding: 0.45rem 0.75rem; font-size: 0.85rem; font-weight: 700; }
   .wii-aimzone { flex: 1; display: flex; align-items: center; justify-content: center;
-    border: 2px dashed #1e293b; border-radius: 1rem; margin: 0.3rem 0 1rem; }
-  .wii-cross { font-size: 3rem; color: #334155; }
+    border: 2px dashed #292540; border-radius: 1rem; margin: 0.3rem 0 1rem; }
+  .wii-cross { font-size: 3rem; color: #49415f; }
   .wii-btn { position: fixed; bottom: calc(env(safe-area-inset-bottom) + 1.6rem);
     width: 5.2rem; height: 5.2rem; border-radius: 50%; border: 0;
     font-size: 2rem; font-weight: 900; color: #fff; touch-action: none;
@@ -429,7 +413,7 @@
     -webkit-user-select: none; user-select: none;
   }
   .wii-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,0.35); }
-  .wii-a { left: 1.6rem; background: radial-gradient(circle at 35% 30%, #4ade80, #16a34a); }
+  .wii-a { left: 1.6rem; background: radial-gradient(circle at 35% 30%, #78e3bc, #16a34a); }
   .wii-b { right: 1.6rem; background: radial-gradient(circle at 35% 30%, #fca5a5, #dc2626); }
 
   /* Wii Sandbox is played holding the phone sideways, like a controller —
@@ -439,7 +423,7 @@
     #wii:not([hidden]) #wii-rotate {
       display: flex; position: fixed; inset: 0; z-index: 200;
       flex-direction: column; align-items: center; justify-content: center;
-      gap: 0.75rem; text-align: center; padding: 2rem; background: #0b1120; color: #e2e8f0;
+      gap: 0.75rem; text-align: center; padding: 2rem; background: #0c0b18; color: #f0edf9;
     }
   }
   .wii-rotate-ico { font-size: 3.5rem; animation: wiirot 1.6s ease-in-out infinite; }
@@ -447,75 +431,75 @@
 
   /* --- Ludo --- */
   #ludo { width: 100%; max-width: 380px; margin: 0 auto; padding: 0 0.5rem 2rem; display: flex; flex-direction: column; gap: 0.8rem; align-items: center; }
-  .lu-you { text-align: center; font-size: 1rem; color: #94a3b8; }
+  .lu-you { text-align: center; font-size: 1rem; color: #b1abc7; }
   .lu-you b { font-size: 1.3rem; }
   .lu-status { text-align: center; font-size: 1.15rem; font-weight: 800; min-height: 1.4rem; }
   .lu-board { width: 100%; aspect-ratio: 1; display: block; border-radius: 0.6rem; background: #f8f5ec; }
   .lu-move { animation: lupulse 1s ease-in-out infinite; }
   @keyframes lupulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-  .lu-roll { width: 100%; font-size: 1.3rem; font-weight: 900; padding: 1.1rem; border-radius: 0.9rem; border: 0; background: #38bdf8; color: #05070d; }
+  .lu-roll { width: 100%; font-size: 1.3rem; font-weight: 900; padding: 1.1rem; border-radius: 0.9rem; border: 0; background: #b7a4ff; color: #05070d; }
   .lu-roll[disabled] { filter: grayscale(0.6) brightness(0.6); }
-  .lu-die { width: 3.4rem; height: 3.4rem; border-radius: 0.6rem; background: #fff; color: #0f172a;
+  .lu-die { width: 3.4rem; height: 3.4rem; border-radius: 0.6rem; background: #fff; color: #171529;
     display: grid; place-items: center; font-size: 2rem; font-weight: 900; margin: 0 auto; }
-  .lu-hint { text-align: center; color: #64748b; font-size: 0.9rem; }
+  .lu-hint { text-align: center; color: #928aa8; font-size: 0.9rem; }
 
   /* --- Word Hunt --- */
   #wordhunt { width: 100%; max-width: 420px; margin: 0 auto; padding: 0 0.5rem 2rem; display: flex; flex-direction: column; gap: 0.7rem; align-items: center; }
   .wh-top { display: flex; align-items: center; justify-content: center; gap: 1.2rem; }
   .wh-timer { font-size: clamp(1.6rem, 6vw, 2.2rem); font-weight: 900; font-variant-numeric: tabular-nums; }
   .wh-timer.low { color: #f87171; }
-  .wh-score { font-size: clamp(1.6rem, 6vw, 2.2rem); font-weight: 900; color: #4ade80; font-variant-numeric: tabular-nums; }
+  .wh-score { font-size: clamp(1.6rem, 6vw, 2.2rem); font-weight: 900; color: #78e3bc; font-variant-numeric: tabular-nums; }
   .wh-preview { min-height: 1.6rem; font-size: 1.3rem; font-weight: 900; letter-spacing: 0.08em; color: #f1f5f9; }
-  .wh-preview .pts { color: #4ade80; font-size: 1rem; margin-left: 0.4rem; }
+  .wh-preview .pts { color: #78e3bc; font-size: 1rem; margin-left: 0.4rem; }
   .wh-gridwrap { position: relative; width: 100%; max-width: 360px; touch-action: none; user-select: none; -webkit-user-select: none; }
   .wh-grid { position: relative; width: 100%; aspect-ratio: 1; display: grid; grid-template-columns: repeat(4, 1fr);
-    gap: 0.55rem; background: #0b1120; padding: 0.55rem; border-radius: 1rem; z-index: 1; }
-  .wh-tile { display: grid; place-items: center; background: #1e293b; border-radius: 0.55rem;
+    gap: 0.55rem; background: #0c0b18; padding: 0.55rem; border-radius: 1rem; z-index: 1; }
+  .wh-tile { display: grid; place-items: center; background: #292540; border-radius: 0.55rem;
     font-size: clamp(1.4rem, 6vw, 2rem); font-weight: 900; color: #f1f5f9; transition: background 0.1s, transform 0.1s; }
   .wh-tile.on { background: #0369a1; transform: scale(0.94); }
   .wh-tile.ok { background: #16a34a; }
   .wh-tile.bad { background: #dc2626; }
   .wh-trail { position: absolute; inset: 0; pointer-events: none; z-index: 2; width: 100%; height: 100%; }
   .wh-words { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; width: 100%; max-height: 6.5rem; overflow-y: auto; }
-  .wh-word-chip { background: #1e293b; border-radius: 0.4rem; padding: 0.25rem 0.55rem; font-size: 0.85rem;
+  .wh-word-chip { background: #292540; border-radius: 0.4rem; padding: 0.25rem 0.55rem; font-size: 0.85rem;
     font-weight: 700; color: #cbd5e1; white-space: nowrap; }
-  .wh-word-chip b { color: #4ade80; }
-  .wh-msg { text-align: center; color: #94a3b8; }
+  .wh-word-chip b { color: #78e3bc; }
+  .wh-msg { text-align: center; color: #b1abc7; }
 
   /* --- Imposter --- */
   #imposter { width: 100%; max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.9rem; padding-bottom: 2rem; }
   .imp-role { text-align: center; border-radius: 0.9rem; padding: 1.1rem 1rem; }
-  .imp-role .cat { color: #94a3b8; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.12em; }
-  .imp-role .cat b { color: #e2e8f0; }
+  .imp-role .cat { color: #b1abc7; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.12em; }
+  .imp-role .cat b { color: #f0edf9; }
   .imp-role.crew { background: #0f2a1c; border: 1px solid #1c5238; }
-  .imp-role.crew .word { font-size: 2rem; font-weight: 800; color: #4ade80; margin-top: 0.3rem; }
+  .imp-role.crew .word { font-size: 2rem; font-weight: 800; color: #78e3bc; margin-top: 0.3rem; }
   .imp-role.imp { background: #331018; border: 1px solid #7f1d2e; }
   .imp-role.imp .word { font-size: 1.5rem; font-weight: 800; color: #fca5a5; margin-top: 0.3rem; }
   .imp-role.imp .sub { color: #fda4af; font-size: 0.9rem; margin-top: 0.3rem; }
-  .imp-role.out { background: #1e293b; border: 1px solid #334155; }
-  .imp-role.out .word { font-size: 1.2rem; font-weight: 800; color: #94a3b8; margin-top: 0.3rem; }
+  .imp-role.out { background: #292540; border: 1px solid #49415f; }
+  .imp-role.out .word { font-size: 1.2rem; font-weight: 800; color: #b1abc7; margin-top: 0.3rem; }
 
   .imp-turnbox { text-align: center; }
-  .imp-turnbox p { color: #94a3b8; }
+  .imp-turnbox p { color: #b1abc7; }
   .imp-in { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
-  .imp-in input { flex: 1; font-size: 1.1rem; padding: 0.8rem 0.9rem; border-radius: 0.7rem; border: 1px solid #334155; background: #111827; color: #e2e8f0; }
-  .imp-btn { width: 100%; font-size: 1.05rem; font-weight: 800; padding: 0.9rem; border-radius: 0.75rem; border: 0; background: #38bdf8; color: #05070d; }
+  .imp-in input { flex: 1; font-size: 1.1rem; padding: 0.8rem 0.9rem; border-radius: 0.7rem; border: 1px solid #49415f; background: #1c1930; color: #f0edf9; }
+  .imp-btn { width: 100%; font-size: 1.05rem; font-weight: 800; padding: 0.9rem; border-radius: 0.75rem; border: 0; background: #b7a4ff; color: #05070d; }
   .imp-btn[disabled] { filter: grayscale(0.6) brightness(0.6); }
-  .imp-btn.ghost { background: #1e293b; color: #e2e8f0; }
+  .imp-btn.ghost { background: #292540; color: #f0edf9; }
   .imp-btn.danger { background: #ef4444; color: #fff; }
   .imp-btn.go { background: #f59e0b; color: #1a1206; }
 
   .imp-board { display: flex; flex-direction: column; gap: 0.7rem; }
-  .imp-board .rnd { color: #64748b; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.2rem; }
-  .imp-board .c { display: flex; gap: 0.5rem; padding: 0.28rem 0; border-bottom: 1px solid #131c30; }
+  .imp-board .rnd { color: #928aa8; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.2rem; }
+  .imp-board .c { display: flex; gap: 0.5rem; padding: 0.28rem 0; border-bottom: 1px solid #211d35; }
   .imp-board .c .w { font-weight: 800; min-width: 5.5rem; }
   .imp-board .c .t { font-size: 1.05rem; }
-  .imp-board .c.skip .t { color: #64748b; font-style: italic; }
+  .imp-board .c.skip .t { color: #928aa8; font-style: italic; }
 
   .imp-cands { display: flex; flex-direction: column; gap: 0.5rem; }
-  .imp-cands button { text-align: left; padding: 0.85rem 1rem; border-radius: 0.7rem; border: 2px solid #334155; background: #1e293b; color: #e2e8f0; font-weight: 800; font-size: 1.05rem; }
-  .imp-cands button.picked { border-color: #38bdf8; background: #0c2a3a; }
-  .imp-msg { text-align: center; color: #94a3b8; }
+  .imp-cands button { text-align: left; padding: 0.85rem 1rem; border-radius: 0.7rem; border: 2px solid #49415f; background: #292540; color: #f0edf9; font-weight: 800; font-size: 1.05rem; }
+  .imp-cands button.picked { border-color: #b7a4ff; background: #0c2a3a; }
+  .imp-msg { text-align: center; color: #b1abc7; }
   .imp-big { text-align: center; }
   .imp-big .em { font-size: 3rem; }
   .imp-big h2 { font-size: 1.4rem; margin: 0.4rem 0; }
@@ -529,27 +513,27 @@
   .mf-role.mafia { background: #331018; border: 1px solid #7f1d2e; }
   .mf-role.mafia .word { color: #fca5a5; }
   .mf-role.sheriff { background: #10233a; border: 1px solid #1e4f7a; }
-  .mf-role.sheriff .word { color: #7dd3fc; }
+  .mf-role.sheriff .word { color: #d0c2ff; }
   .mf-role.doctor { background: #0f2a1c; border: 1px solid #1c5238; }
   .mf-role.doctor .word { color: #6ee7b7; }
-  .mf-role.civilian { background: #1e293b; border: 1px solid #334155; }
-  .mf-role.civilian .word { color: #e2e8f0; }
+  .mf-role.civilian { background: #292540; border: 1px solid #49415f; }
+  .mf-role.civilian .word { color: #f0edf9; }
   .mf-role.dead { background: #17151c; border: 1px solid #3f2937; }
-  .mf-role.dead .word { color: #94a3b8; }
+  .mf-role.dead .word { color: #b1abc7; }
   .mf-role .team { margin-top: 0.5rem; font-weight: 800; color: #fecaca; font-size: 0.95rem; }
-  .mf-msg { text-align: center; color: #94a3b8; }
-  .mf-msg.big { color: #e2e8f0; font-weight: 800; font-size: 1.1rem; }
-  .mf-card { background: #131c30; border-radius: 0.8rem; padding: 0.9rem 1rem; }
-  .mf-card h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.5rem; }
+  .mf-msg { text-align: center; color: #b1abc7; }
+  .mf-msg.big { color: #f0edf9; font-weight: 800; font-size: 1.1rem; }
+  .mf-card { background: #211d35; border-radius: 0.8rem; padding: 0.9rem 1rem; }
+  .mf-card h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: #928aa8; margin-bottom: 0.5rem; }
   .mf-list { display: flex; flex-direction: column; gap: 0.45rem; }
-  .mf-list button { text-align: left; padding: 0.8rem 1rem; border-radius: 0.7rem; border: 2px solid #334155;
-    background: #1e293b; color: #e2e8f0; font-weight: 800; font-size: 1.02rem; display: flex; justify-content: space-between; gap: 0.5rem; }
+  .mf-list button { text-align: left; padding: 0.8rem 1rem; border-radius: 0.7rem; border: 2px solid #49415f;
+    background: #292540; color: #f0edf9; font-weight: 800; font-size: 1.02rem; display: flex; justify-content: space-between; gap: 0.5rem; }
   .mf-list button.picked { border-color: #fbbf24; background: #3a2f10; }
-  .mf-list button .rl { font-size: 0.78rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
+  .mf-list button .rl { font-size: 0.78rem; color: #b1abc7; font-weight: 700; text-transform: uppercase; }
   .mf-list button .rl.mafia { color: #fca5a5; }
-  .mf-btn { width: 100%; font-size: 1.05rem; font-weight: 800; padding: 0.9rem; border-radius: 0.75rem; border: 0; background: #38bdf8; color: #05070d; }
+  .mf-btn { width: 100%; font-size: 1.05rem; font-weight: 800; padding: 0.9rem; border-radius: 0.75rem; border: 0; background: #b7a4ff; color: #05070d; }
   .mf-btn[disabled] { filter: grayscale(0.6) brightness(0.6); }
-  .mf-btn.ghost { background: #1e293b; color: #e2e8f0; }
+  .mf-btn.ghost { background: #292540; color: #f0edf9; }
   .mf-btn.go { background: #f59e0b; color: #1a1206; }
   .mf-btn.danger { background: #ef4444; color: #fff; }
   .mf-deaths { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.9rem; color: #cbd5e1; }
@@ -558,19 +542,22 @@
   .mf-step:last-child { border-bottom: 0; }
   .mf-step > span:first-child { font-weight: 800; }
   .mf-step .ctrl { display: flex; align-items: center; gap: 0.6rem; }
-  .mf-step .ctrl button { width: 2.2rem; height: 2.2rem; border-radius: 0.55rem; border: 1px solid #334155;
-    background: #1e293b; color: #e2e8f0; font-size: 1.2rem; font-weight: 800; }
+  .mf-step .ctrl button { width: 2.2rem; height: 2.2rem; border-radius: 0.55rem; border: 1px solid #49415f;
+    background: #292540; color: #f0edf9; font-size: 1.2rem; font-weight: 800; }
   .mf-step .ctrl b { min-width: 1.4rem; text-align: center; font-size: 1.2rem; }
 </style>
+<link rel="stylesheet" href="/theme.css">
 </head>
-<body>
+<body class="page-controller">
   <div id="conn" hidden>Connection lost — reconnecting…</div>
-  <h1>Party<span>Games</span></h1>
+  <h1>Vibe<span>Box</span></h1>
 
   <div class="join" id="join">
-    <input id="name" type="text" placeholder="Your name" autocomplete="off"
+    <p class="eyebrow">YOUR SEAT AT GAME NIGHT</p>
+    <p class="join-intro">One phone. All the fun.</p>
+    <input id="name" aria-label="Your name" type="text" placeholder="Your name" autocomplete="off"
            autocapitalize="words" maxlength="14" enterkeyhint="next">
-    <input id="code" type="text" placeholder="Room code" autocomplete="off"
+    <input id="code" aria-label="Room code" type="text" placeholder="Room code" autocomplete="off"
            autocapitalize="characters" autocorrect="off" spellcheck="false"
            maxlength="6" enterkeyhint="go" style="letter-spacing:0.25em;text-transform:uppercase">
     <button id="join-btn">Join game</button>
@@ -579,20 +566,14 @@
 
   <div id="waiting" hidden>
     <p class="wait-badge" id="wait-who">You're in!</p>
-    <p class="wait-sub">Waiting for the host to choose a game on the big screen…</p>
+    <p class="wait-sub">Waiting for the host to choose a game…</p>
   </div>
 
-  <!-- ===== TAP RACE ===== -->
-  <div id="game">
-    <div class="me">
-      <div class="who" id="who">–</div>
-      <div class="status" id="status" role="status" aria-live="polite">Waiting…</div>
-      <div class="progress"><div id="pbar"></div></div>
-    </div>
-    <button class="tap" id="tap" disabled>TAP</button>
-    <button class="act" id="start">Start race</button>
-    <button class="act secondary" id="reset">Back to lobby</button>
-  </div>
+  <section id="phone-results" class="phone-results" aria-labelledby="phone-results-title" hidden>
+    <h2 id="phone-results-title"></h2>
+    <p class="results-unit" id="phone-results-unit"></p>
+    <ol id="phone-results-rows"></ol>
+  </section>
 
   <!-- ===== SCATTERGORIES ===== -->
   <div id="scat" hidden>
@@ -616,7 +597,7 @@
     <div id="sc-done" class="sc-done-big" hidden>
       <div class="n" id="sc-done-n">+0</div>
       <p class="wait-sub" id="sc-done-sub" style="margin:0.5rem auto 0">this round</p>
-      <div class="sc-board" id="sc-done-board"></div>
+
     </div>
   </div>
 
@@ -726,7 +707,7 @@
     <div id="bb-reveal" hidden>
       <div class="big" id="bb-reveal-t" style="text-align:center;margin:0.5rem 0 0.9rem">Alice wins the round</div>
       <div class="bb-plays" id="bb-reveal-list"></div>
-      <div class="bb-scores" id="bb-reveal-scores"></div>
+
       <button class="bb-bigbtn" id="bb-next" type="button" style="margin-top:1.25rem" hidden>Next round →</button>
       <p id="bb-reveal-wait" style="text-align:center;color:#94a3b8;margin-top:1rem">Waiting for the Czar…</p>
     </div>
@@ -735,7 +716,7 @@
     <div id="bb-over" class="bb-msg" hidden>
       <div class="crown">🎉</div>
       <div class="big" id="bb-over-t">Bob wins!</div>
-      <div class="bb-scores" id="bb-over-scores"></div>
+
       <p style="margin-top:1rem">Waiting for the host…</p>
     </div>
 
@@ -823,6 +804,11 @@
 
   <!-- ===== WII SANDBOX ===== -->
   <div id="wii" hidden>
+    <section id="wii-touch" hidden>
+      <h2>Target Practice</h2>
+      <p id="wii-touch-msg"></p>
+      <div id="wii-touch-board" aria-label="Your targets"></div>
+    </section>
     <div id="wii-rotate">
       <div class="wii-rotate-ico">📱</div>
       <h2>Turn your phone sideways</h2>
@@ -888,6 +874,7 @@
       <button class="imp-btn" id="imp-clue-send" type="button" hidden>Submit clue</button>
     </div>
 
+    <p id="imp-event" class="imp-msg" role="status" hidden></p>
     <div id="imp-review" hidden>
       <button class="imp-btn go" id="imp-guess-start" type="button" hidden>🎯 I'll guess the word</button>
       <p class="imp-msg" id="imp-review-msg"></p>
@@ -921,6 +908,7 @@
   </div>
 
   <!-- ===== LUDO ===== -->
+  <div id="bs" class="bs-view" hidden></div>
   <div id="ludo" hidden>
     <div class="lu-you" id="lu-you"></div>
     <div class="lu-status" id="lu-status"></div>
@@ -1024,6 +1012,9 @@
     </div>
   </div>
 
+<script src="/phone-host.js"></script>
+<script src="/results.js"></script>
+<script src="/bs.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -1057,7 +1048,8 @@ function buzzTone() {
 // browsers need a user gesture before audio can play — unlock on the first tap
 addEventListener("pointerdown", _audioCtx, { once: true });
 
-let pid = null, token = null, color = "#38bdf8", goal = 40, phase = "lobby", myTaps = 0;
+let pid = null, token = null, color = "#38bdf8";
+let phoneOnly = false;
 let myName = "", currentGame = undefined;
 
 // ---- staying the same player across a disconnect ----
@@ -1065,8 +1057,8 @@ let myName = "", currentGame = undefined;
 // reload / crash / WiFi drop / phone-lock can re-attach as the same player,
 // keeping our name, colour, score and team.
 const _qs0 = new URLSearchParams(location.search);
-const ROOM = (_qs0.get("code") || "").slice(0, 6).toUpperCase();
-const IDKEY = ROOM ? "pg:" + ROOM : "pg:_";
+let ROOM = (_qs0.get("code") || "").slice(0, 6).toUpperCase();
+let IDKEY = ROOM ? "pg:" + ROOM : "pg:_";
 function saveId()  {
   try {
     // one room at a time — drop any id saved for a previous room code
@@ -1092,13 +1084,11 @@ function tryResume() {
         body: JSON.stringify({ pid: saved.pid, token: saved.token })
       })).json();
       if (!d || !d.ok) return false;
-      pid = d.pid; token = saved.token; color = d.color; goal = d.goal;
+      pid = d.pid; token = saved.token; color = d.color;
       myName = d.name || myName || ("Player " + pid);
       saveId();
       $("join").style.display = "none";
-      $("who").textContent = myName; $("who").style.color = color;
       $("wait-who").textContent = myName + " — you're back in!";
-      $("tap").style.background = color;
       return true;
     } catch (e) {
       return false;
@@ -1119,7 +1109,7 @@ async function join() {
   const name = $("name").value.trim();
   const code = $("code").value.trim().toUpperCase();
   $("err").textContent = "";
-  if (!code) { $("err").textContent = "Enter the room code shown on the screen."; return; }
+  if (!code) { $("err").textContent = "Enter the room code from your host."; return; }
   try {
     const r = await fetch("/join", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1130,14 +1120,11 @@ async function join() {
       $("err").textContent = JOIN_ERRORS[d && d.error] || "Could not join. Try again.";
       return;
     }
-    pid = d.pid; token = d.token; color = d.color; goal = d.goal;
+    pid = d.pid; token = d.token; color = d.color;
     myName = name || ("Player " + pid);
     saveId();
     $("join").style.display = "none";
-    $("who").textContent = myName;
-    $("who").style.color = color;
     $("wait-who").textContent = myName + " — you're in!";
-    $("tap").style.background = color;
     $("waiting").hidden = false;
     startLoops();
   } catch (e) {
@@ -1178,6 +1165,11 @@ if (_qs.get("pid") && _qs.get("token")) {
 }
 
 (async () => {
+  const hostCode = await PhoneHost.init(() => pid);
+  if (hostCode) {
+    ROOM = hostCode; IDKEY = "pg:" + ROOM;
+    $("code").value = ROOM;
+  }
   // already played on this phone? slip straight back into our old seat.
   if (await tryResume()) { $("waiting").hidden = false; startLoops(); return; }
   clearId();
@@ -1187,7 +1179,6 @@ if (_qs.get("pid") && _qs.get("token")) {
 function setView(game) {
   if (game === currentGame) return;
   currentGame = game;
-  $("game").classList.toggle("on", game === "tap-race");
   $("scat").hidden = game !== "scattergories";
   $("taboo").hidden = game !== "taboo";
   $("blackbox").hidden = game !== "blackbox";
@@ -1195,11 +1186,12 @@ function setView(game) {
   $("wii").hidden = game !== "wii-sandbox";
   $("imposter").hidden = game !== "imposter";
   $("mafia").hidden = game !== "mafia";
+  $("bs").hidden = game !== "bs";
   $("ludo").hidden = game !== "ludo";
   $("wordhunt").hidden = game !== "word-hunt";
-  $("waiting").hidden = ["tap-race", "scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt"].includes(game);
+  $("waiting").hidden = ["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
-  if (game === "wii-sandbox") wiiEnsureLoop();
+  if (game === "wii-sandbox" && !phoneOnly) wiiEnsureLoop();
   else wiiMaybeGoHome(game);   // left Wii on the https twin? go back to :8000
 }
 
@@ -1207,46 +1199,8 @@ function setView(game) {
 function send(action, extra) {
   return fetch("/input", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(Object.assign({ pid, action }, extra || {}))
+    body: JSON.stringify(Object.assign({ pid, token, action }, extra || {}))
   }).then(r => r.json()).catch(() => ({}));
-}
-
-// ================= TAP RACE =================
-let pending = 0;
-function flushTaps() {
-  if (pending > 0 && currentGame === "tap-race" && phase === "playing") {
-    const n = pending; pending = 0;
-    for (let i = 0; i < n; i++) send("tap");
-  }
-  requestAnimationFrame(flushTaps);
-}
-function onTap(e) {
-  e.preventDefault();
-  if (currentGame !== "tap-race" || phase !== "playing") return;
-  pending++; myTaps++; paintTap();
-  if (navigator.vibrate) navigator.vibrate(8);
-}
-$("tap").addEventListener("touchstart", onTap, { passive: false });
-$("tap").addEventListener("mousedown", onTap);
-$("start").addEventListener("click", () => send("start"));
-$("reset").addEventListener("click", () => send("reset"));
-
-function paintTap(s) {
-  const tap = $("tap");
-  tap.disabled = phase !== "playing";
-  $("pbar").style.width = Math.min(100, (myTaps / goal) * 100) + "%";
-  $("pbar").style.background = color;
-  if (phase === "lobby") {
-    $("status").textContent = "In the lobby — press Start when everyone's in";
-    tap.textContent = "WAIT";
-  } else if (phase === "playing") {
-    $("status").textContent = myTaps + " / " + goal + "  —  GO!";
-    tap.textContent = "TAP!";
-  } else if (phase === "over") {
-    const iWon = s && s.winnerPid === pid;
-    $("status").textContent = iWon ? "🏆 You won!" : (s && s.winner ? s.winner + " won" : "Race over");
-    tap.textContent = iWon ? "🏆" : "DONE";
-  }
 }
 
 // ================= SCATTERGORIES =================
@@ -1316,7 +1270,7 @@ function scFlushBeacon() {
   if (scPhase !== "playing" || !pid || !navigator.sendBeacon) return;
   scSaveDraft();
   navigator.sendBeacon("/input", JSON.stringify(
-    { pid, action: "scatAnswers", answers: scReadForm() }));
+    { pid, token, action: "scatAnswers", answers: scReadForm() }));
 }
 window.addEventListener("visibilitychange", () => { if (document.hidden) scFlushBeacon(); });
 
@@ -1415,12 +1369,7 @@ function renderScat(s) {
     const mine = (sc.roundScores || []).find(r => r.pid === pid);
     $("sc-done-n").textContent = "+" + (mine ? mine.points : 0);
     $("sc-done-sub").textContent = mine ? `this round · ${mine.total} total` : "this round";
-    $("sc-done-board").innerHTML = (sc.roundScores || []).map((r, idx) =>
-      `<div class="sc-board-row">
-         <span class="who"><span class="rk">${idx + 1}</span><span class="nm" style="color:${r.color}">${esc(r.name)}</span></span>
-         <span class="pts">${r.total}${r.points ? `<span class="delta">+${r.points}</span>` : ""}</span>
-       </div>`
-    ).join("");
+
   }
 }
 
@@ -1492,7 +1441,7 @@ function renderTaboo(s) {
 
   const inTurn = tb.phase === "turn";
   $("tb-hdr").hidden = !inTurn;
-  $("tb-card").hidden = !inTurn;
+  $("tb-card").hidden = !inTurn || !tb.card;
   ["tb-noteam", "tb-wait", "tb-clue", "tb-buzz", "tb-cready", "tb-cend", "tb-cover"].forEach(id => $(id).hidden = true);
 
   if (tb.phase === "ready") {
@@ -1500,12 +1449,21 @@ function renderTaboo(s) {
     const mine = tbMyTeam === tb.activeTeam;
     $("tb-cready-role").textContent = tbMyTeam == null
       ? "Next turn starting…"
-      : mine ? "Your team is guessing — hold this phone!" : "Get ready to catch taboo words";
+      : mine ? (phoneOnly ? (tb.youClueGiver ? "You give the clues this turn" : `Guess the word from ${tb.clueGiverName || "your teammate"}’s clues`) : "Your team is guessing — hold this phone!") : "Get ready to catch taboo words";
     tbcReadyTick(tb);
     return;
   }
 
   if (inTurn) {
+    tbTickC(tb);
+    if (!tb.card) {
+      $("tb-wait").hidden = false;
+      $("tb-wait-team").textContent = "Guess the word!";
+      $("tb-wait-sub").textContent = `${tb.clueGiverName || "Your teammate"} is giving clues. Say your answers out loud.`;
+      $("tb-switch").hidden = true;
+      $("tb-hdr-t").textContent = nameOf(tb.activeTeam) + " is guessing";
+      return;
+    }
     tbSeq = tb.card.seq;
     const acted = tbActedSeq === tbSeq;
     $("tb-hdr-t").textContent = tbMyTeam === tb.activeTeam ? "Your team is guessing" : nameOf(tb.activeTeam) + " is guessing";
@@ -1567,11 +1525,6 @@ let bbLastState = null;      // last full /state, so a tap can re-render
 function bbBlank(text) {
   return esc(text).replace(/_____/g, "<b>_____</b>");
 }
-function bbScoresHtml(players) {
-  return players.map(p =>
-    `<span class="bb-chip ${p.connected === false ? "recon" : ""}" style="color:${p.color}">${esc(p.name)} ${p.score}${p.czar ? " 👑" : ""}${p.connected === false ? " ⟳" : ""}</span>`
-  ).join("");
-}
 
 const BB_SECTIONS = ["bb-choose", "bb-sent", "bb-czar-wait", "bb-judge", "bb-watch", "bb-reveal", "bb-over", "bb-lobby"];
 let bbShownSection = null;
@@ -1617,7 +1570,6 @@ function renderBlackbox(s) {
   if (b.phase === "gameover") {
     bbShow("bb-over");
     $("bb-over-t").textContent = b.champPid === pid ? "🎉 You win BlackBox!" : (b.champName || "Someone") + " wins BlackBox!";
-    $("bb-over-scores").innerHTML = bbScoresHtml(b.players);
     return;
   }
 
@@ -1698,7 +1650,6 @@ function renderBlackbox(s) {
         <span class="who" style="color:${pl.win ? '#052e16' : (pl.color || '#94a3b8')}">
           ${esc(pl.name || "")}${pl.win ? " 🏆" : ""}${tag}</span>${pl.filledHtml}</div>`;
     }).join("");
-    $("bb-reveal-scores").innerHTML = bbScoresHtml(b.players);
     const canAdvance = iAmCzar;
     $("bb-next").hidden = !canAdvance;
     $("bb-reveal-wait").hidden = canAdvance;
@@ -2117,7 +2068,7 @@ function wiiFrame() {
 function wiiPost(body) {
   if (!pid) return;
   fetch("/input", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(Object.assign({ pid }, body)), keepalive: true }).catch(() => {});
+    body: JSON.stringify(Object.assign({ pid, token }, body)), keepalive: true }).catch(() => {});
 }
 
 function wiiSetStage(st) {
@@ -2143,8 +2094,25 @@ function renderWiiScreens() {
   $("wii-verify-yes").classList.toggle("wii-primary", !secureUrl);
 }
 
+$("wii-touch-board").addEventListener("click", e => {
+  const button = e.target.closest("[data-target]");
+  if (button) { button.disabled = true; send("wiiTouch", { id: +button.dataset.target }).finally(() => { button.disabled = false; }); }
+});
 function renderWii(s) {
   const w = s.wii; if (!w) return;
+  $("wii-touch").hidden = !phoneOnly;
+  if (phoneOnly) {
+    ["wii-verify", "wii-cal", "wii-ready"].forEach(id => $(id).hidden = true);
+    const mine = w.targets?.players.find(p => p.pid === pid);
+    $("wii-touch-msg").textContent = !w.targets ? "The host will start Target Practice. Tap your targets as fast as you can!" : !mine ? "You’ll join the next round." : mine.done ? "All targets caught! Check the finish standings above." : `${mine.targets.filter(t => !t.hit).length} targets left — tap to catch them!`;
+    const signature = JSON.stringify(mine?.targets || []);
+    const board = $("wii-touch-board");
+    if (board.dataset.targets !== signature) {
+      board.dataset.targets = signature;
+      board.innerHTML = (mine?.targets || []).filter(t => !t.hit).map(t => `<button type="button" aria-label="Catch target" data-target="${t.id}" style="left:${t.x * 80 + 5}%;top:${t.y * 75 + 5}%">◎</button>`).join("");
+    }
+    return;
+  }
   wiiSens = w.sens || wiiSens;
   // the phone drives its own verify -> calibrate -> ready flow; the only thing
   // the server pushes back is a host "Reset" (stage snaps to verify)
@@ -2280,7 +2248,6 @@ let loopsOn = false;
 function startLoops() {
   if (loopsOn) return;
   loopsOn = true;
-  requestAnimationFrame(flushTaps);
   pollState();   // the state poll itself is the heartbeat (see /state?pid=)
 }
 
@@ -2291,13 +2258,31 @@ window.addEventListener("pagehide", (e) => {
   if (!pid || !navigator.sendBeacon) return;
   scFlushBeacon();                       // save the answer sheet either way
   if (e.persisted) return;               // just frozen — player's coming back
-  navigator.sendBeacon("/input", JSON.stringify({ pid, action: "leave" }));
+  navigator.sendBeacon("/input", JSON.stringify({ pid, token, action: "leave" }));
 });
+
+// Results use the same public state as each game's controller. Updating only
+// changed content keeps polling from repeatedly announcing the same standings.
+function renderPhoneResults(s) {
+  const result = VibeResults.fromState(s, pid);
+  const panel = $("phone-results");
+  panel.hidden = !result;
+  if (!result) return;
+  $("phone-results-title").textContent = result.title;
+  $("phone-results-unit").textContent = result.unit;
+  const html = result.rows.map(r => `<li class="result-row${r.you ? ' is-you' : ''}">
+    <span class="result-rank" aria-label="${r.rank ? 'Rank ' + r.rank : 'Not finished'}">${r.rank || '—'}</span>
+    <span class="result-person"><span class="result-name">${esc(r.name)}${r.you ? '<small>You</small>' : ''}</span>
+      <span class="result-detail">${esc(r.detail || '')}</span></span>
+    <strong class="result-score">${r.score}</strong></li>`).join('');
+  const rows = $("phone-results-rows");
+  if (rows.innerHTML !== html) rows.innerHTML = html;
+}
 
 async function pollState() {
   try {
     const url = "/state" + (pid ? "?pid=" + pid : "");
-    const s = await (await fetch(url, { cache: "no-store" })).json();
+    const s = await (await fetch(url, { cache: "no-store", headers: { "X-Player-Token": token || "" } })).json();
     $("conn").hidden = true;   // a reply got through — we're online
     if (s.kicked) {
       // the host removed us — drop our seat and go back to name + code entry
@@ -2314,17 +2299,12 @@ async function pollState() {
       if (await tryResume()) { setTimeout(pollState, 400); return; }
       clearId(); location.reload(); return;
     }
-    const wasPlaying = phase === "playing";
-    phase = s.phase; goal = s.goal;
+    phoneOnly = !!s.phoneMode;
+    document.body.classList.toggle("phone-only-room", phoneOnly);
     setView(s.game);
+    PhoneHost.update(s);
 
-    if (s.game === "tap-race") {
-      if (phase === "playing") {
-        if (!wasPlaying || me.taps < myTaps - 3) { myTaps = me.taps; pending = 0; }
-        else myTaps = Math.max(myTaps, me.taps);
-      } else { myTaps = me ? me.taps : 0; pending = 0; }
-      paintTap(s);
-    } else if (s.game === "scattergories") {
+    if (s.game === "scattergories") {
       renderScat(s);
     } else if (s.game === "taboo") {
       renderTaboo(s);
@@ -2343,12 +2323,15 @@ async function pollState() {
     } else if (s.game === "word-hunt") {
       renderWordHunt(s);
     }
+    if (s.game === "bs") BSView.render($("bs"), s, pid, send);
+    renderPhoneResults(s);
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
   }
   setTimeout(pollState, s_poll_delay());
 }
 function s_poll_delay() {
+  if (currentGame === "bs") return 350;
   if (currentGame === "scattergories" && scPhase === "review") return 700;
   if (currentGame === "taboo" && (tbPhase === "turn" || tbPhase === "ready")) return 350;
   if (currentGame === "blackbox" && bbPhase === "judge") return 350;
@@ -2417,6 +2400,11 @@ function renderImposter(s) {
     $("imp-clue-send").hidden = !myTurn;
   }
 
+  const result = im.voteResult, guess = im.lastGuess;
+  const event = $("imp-event");
+  event.hidden = !["review", "gameover"].includes(ph) || (!result && !guess);
+  event.textContent = [result ? (result.tie ? "The vote tied — nobody was eliminated." : `${result.name || "A player"} was voted out${result.wasImposter ? " — an imposter" : " — a crew member"}.`) : "", guess ? `${guess.name} guessed “${guess.text || "the word"}”: ${guess.correct ? "correct!" : "wrong — eliminated."}` : ""].filter(Boolean).join(" ");
+
   // review
   $("imp-review").hidden = ph !== "review" || !inGame;
   if (!$("imp-review").hidden) {
@@ -2445,11 +2433,11 @@ function renderImposter(s) {
   if (ph === "guess") {
     const me = im.youAreGuessing;
     $("imp-guessing-msg").innerHTML = me
-      ? "You're guessing! Type the word, then say it out loud."
+      ? (phoneOnly ? "Type your guess. It will be checked automatically." : "You're guessing! Type the word, then say it out loud.")
       : `<span style="color:${im.guesserColor}">${esc(im.guesserName || "?")}</span> is guessing the word…`;
     $("imp-guess-in").hidden = !me;
     $("imp-guess-lock").hidden = !me;
-    $("imp-guess-note").hidden = !me || !im.guessText;
+    $("imp-guess-note").hidden = phoneOnly || !me || !im.guessText;
     if (me && im.guessText && $("imp-guess-text").value === "") $("imp-guess-text").value = im.guessText;
   }
 

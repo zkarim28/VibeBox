@@ -32,10 +32,11 @@ import blackbox       # local, BlackBox (CAH-style) card decks
 import codenames      # local, Codenames word list + board dealer
 import imposter       # local, Imposter word list
 import mafia          # local, Mafia role dealer
-import notify         # local, emails/texts the owner when a public link opens
+import notify         # local, sends configured startup notifications
 import qr             # local, dependency-free QR-code generator
 import scattergories  # local, Scattergories data + rules
 import taboo          # local, Taboo card deck
+import bs
 import wordhunt       # local, Word Hunt board generator + dictionary
 
 HOST = "0.0.0.0"
@@ -53,7 +54,6 @@ HTTPS_OK = False            # set True once the TLS listener is actually up
 _CERT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".certs")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-GOAL = 40                     # taps needed to win
 # Controllers touch the server ~2x/second via /state polling. Two stages, so a
 # WiFi blip or a phone locking doesn't cost you your spot:
 #   no heartbeat for PLAYER_TIMEOUT  -> marked "reconnecting" (kept in the game)
@@ -98,7 +98,8 @@ _join_hits = {}             # ip -> [timestamps]
 
 # Actions only the host screen may trigger.
 HOST_ONLY = {
-    "start", "reset", "kick",
+    "bsStart", "bsLobby", "bsSet",
+    "kick", "hostMode",
     "scatStart", "scatSet", "scatEndRound", "scatNext", "scatLobby", "scatResetScores",
     "tabooStart", "tabooSet", "tabooBeginTurn", "tabooEndTurn", "tabooNextTurn",
     "tabooEndGame", "tabooNewGame",
@@ -115,14 +116,7 @@ HOST_ONLY = {
 # The game catalog shown on the menu screen. Add an entry here (and, for a
 # playable one, the game logic) to grow the collection.
 GAMES = [
-    {
-        "id": "tap-race",
-        "name": "Tap Race",
-        "tagline": "Mash the button. First to 40 taps wins.",
-        "players": "2-8 players",
-        "status": "ready",
-        "emoji": "\N{CHEQUERED FLAG}",
-    },
+    {"id": "bs", "name": "BS", "tagline": "Shed your cards, bluff your friends, and call their BS.", "players": "2–10 players", "status": "ready", "emoji": "🃏"},
     {
         "id": "scattergories",
         "name": "Scattergories",
@@ -476,7 +470,7 @@ def _wii_targets_new():
     calibration (stage 'ready') gets its own colour's set of targets, placed
     at random on the shared stage. Everyone races to capture only their own."""
     w = state["wii"]
-    pids = [pid for pid, pt in w["pointers"].items() if pt.get("stage") == "ready"]
+    pids = list(state["players"]) if state["phoneMode"] else [pid for pid, pt in w["pointers"].items() if pt.get("stage") == "ready"]
 
     def _mk_target():
         _wii_target_seq[0] += 1
@@ -600,10 +594,8 @@ def fresh_wordhunt():
 
 state = {
     "game": None,             # None = menu screen, else a GAMES id
-    "phase": "lobby",         # tap-race phase: lobby | playing | over
-    "goal": GOAL,
-    "winner": None,           # tap-race winner pid
-    "players": {},            # pid -> {name, color, taps, score, team, last_seen}
+    "phoneMode": False,       # phone-only room; host also has a player seat
+    "players": {},            # pid -> {name, color, score, team, last_seen}
     "scat": fresh_scat(),
     "taboo": fresh_taboo(),
     "blackbox": fresh_blackbox(),
@@ -613,6 +605,7 @@ state = {
     "mafia": fresh_mafia(),
     "ludo": fresh_ludo(),
     "wordhunt": fresh_wordhunt(),
+    "bs": bs.fresh(),
 }
 _next_pid = [1]
 # pids the host has kicked — their controller's next /state poll gets
@@ -720,7 +713,7 @@ def _scat_category_answers(idx):
     return answers
 
 
-def _taboo_public():
+def _taboo_public(for_pid=None):
     tb = state["taboo"]
     counts = {"1": 0, "2": 0}
     for p in state["players"].values():
@@ -743,8 +736,13 @@ def _taboo_public():
     }
     if tb["phase"] == "ready":
         out["readyUntil"] = tb["readyUntil"]
+    giver = tb.get("clueGiver")
+    out["clueGiverPid"] = giver
+    out["clueGiverName"] = state["players"].get(giver, {}).get("name")
+    out["youClueGiver"] = for_pid == giver and giver is not None
     if tb["phase"] == "turn":
-        out["card"] = tb["card"]
+        guesser = state["players"].get(for_pid, {}).get("team") == tb["activeTeam"] and for_pid != giver
+        out["card"] = None if state["phoneMode"] and (guesser or for_pid is None) else tb["card"]
     if tb["phase"] in ("turnend", "gameover"):
         out["lastTurnTeam"] = tb["activeTeam"]
     if tb["phase"] == "gameover":
@@ -1098,7 +1096,7 @@ def _wii_public(for_pid=None):
         })
     out = {
         "sens": w["sens"],
-        "items": w["items"],
+        "items": [it for it in w["items"] if not state["phoneMode"] or it["id"] == "targets"],
         "pointers": pointers,
         "selection": w["selection"],
         "playerCount": len(state["players"]),
@@ -1229,21 +1227,18 @@ def public_state(for_pid=None):
     `for_pid` (set on a /state?pid= poll) adds that player's own private view."""
     players = [
         {"pid": pid, "name": p["name"], "color": p["color"],
-         "taps": p["taps"], "score": p["score"], "team": p.get("team"),
+         "score": p["score"], "team": p.get("team"),
          "connected": p.get("connected", True)}
         for pid, p in state["players"].items()
     ]
     players.sort(key=lambda p: p["pid"])
-    winner = state["players"].get(state["winner"], {}).get("name") if state["winner"] else None
     return {
+        "bs": bs.public(state["bs"], state["players"], for_pid) if state["game"] == "bs" else None,
         "game": state["game"],
-        "phase": state["phase"],
-        "goal": state["goal"],
-        "winner": winner,
-        "winnerPid": state["winner"],
+        "phoneMode": state["phoneMode"],
         "players": players,
         "scat": _scat_public(for_pid) if state["game"] == "scattergories" else None,
-        "taboo": _taboo_public() if state["game"] == "taboo" else None,
+        "taboo": _taboo_public(for_pid) if state["game"] == "taboo" else None,
         "blackbox": _blackbox_public(for_pid) if state["game"] == "blackbox" else None,
         "codenames": _codenames_public(for_pid) if state["game"] == "codenames" else None,
         "wii": _wii_public(for_pid) if state["game"] == "wii-sandbox" else None,
@@ -1350,11 +1345,12 @@ def touch_player(pid):
     return False
 
 
-def _valid_pid(pid):
+def _player_authenticated(pid, token):
     try:
-        return int(pid) in state["players"]
+        player = state["players"].get(int(pid))
     except (TypeError, ValueError):
         return False
+    return bool(player and token and secrets.compare_digest(str(token), player["token"]))
 
 
 def janitor():
@@ -1362,6 +1358,13 @@ def janitor():
         time.sleep(1)
         with _lock:
             changed = False
+            if state["game"] == "bs":
+                g = state["bs"]
+                if g["phase"] not in ("lobby", "gameover") and any(p not in state["players"] for p in g["order"]):
+                    g.update(phase="gameover", winner=None, deadline=0, message="A player left. Start a new deal to continue.")
+                    changed = True
+                elif bs.expire(g):
+                    changed = True
             # end a Scattergories round when its timer runs out
             scat = state["scat"]
             if (state["game"] == "scattergories" and scat["phase"] == "playing"
@@ -1389,6 +1392,9 @@ def janitor():
                     and bb["endsAt"] and time.time() >= bb["endsAt"]):
                 if not _bb_to_judge():
                     _bb_begin_round()
+                changed = True
+
+            if _wh_expire():
                 changed = True
 
             if reap_players():
@@ -1422,13 +1428,13 @@ def do_join(name, code, ip):
             team = "red" if r <= b else "blue"
         token = secrets.token_urlsafe(9)   # phone keeps this to reconnect as itself
         state["players"][pid] = {
-            "name": name, "color": color, "taps": 0, "score": 0, "team": team,
+            "name": name, "color": color, "score": 0, "team": team,
             "last_seen": time.time(), "token": token, "connected": True,
         }
         if state["game"] == "blackbox" and state["blackbox"]["phase"] != "lobby":
             _bb_ensure_player(pid)      # deal a mid-game arrival straight in
         broadcast()
-        return {"pid": pid, "token": token, "color": color, "goal": state["goal"]}
+        return {"pid": pid, "token": token, "color": color}
 
 
 def do_resume(pid, token):
@@ -1449,7 +1455,7 @@ def do_resume(pid, token):
         p["connected"] = True
         broadcast()
         return {"ok": True, "pid": pid, "name": p["name"], "color": p["color"],
-                "team": p.get("team"), "goal": state["goal"]}
+                "team": p.get("team")}
 
 
 def do_select(game):
@@ -1458,10 +1464,7 @@ def do_select(game):
         if game is not None and game not in PLAYABLE:
             return {"ok": False, "error": "unknown_game"}
         state["game"] = game
-        state["phase"] = "lobby"
-        state["winner"] = None
-        for pl in state["players"].values():
-            pl["taps"] = 0
+        state["bs"] = bs.fresh(state["bs"]["decks"])
         # keep the chosen game's settings, drop any in-progress round
         keep = state["scat"]
         state["scat"] = fresh_scat()
@@ -1482,7 +1485,7 @@ def do_select(game):
 
         keepcn = state["codenames"]
         state["codenames"] = fresh_codenames()
-        state["codenames"]["mode"] = keepcn["mode"]
+        state["codenames"]["mode"] = "online" if state["phoneMode"] else keepcn["mode"]
 
         keepw = state["wii"]
         state["wii"] = fresh_wii()
@@ -1682,6 +1685,12 @@ def _taboo_deal_card():
 def _taboo_begin_ready():
     """Show the 'get ready' countdown before a turn actually starts."""
     tb = state["taboo"]
+    if state["phoneMode"]:
+        team = tb["activeTeam"]
+        candidates = sorted(p for p, pl in state["players"].items() if pl.get("team") == team)
+        last = tb.setdefault("lastGivers", {}).get(team, 0)
+        tb["clueGiver"] = next((p for p in candidates if p > last), candidates[0] if candidates else None)
+        tb["lastGivers"][team] = tb["clueGiver"] or 0
     tb["phase"] = "ready"
     tb["readyUntil"] = time.time() + TABOO_READY_SECONDS
     tb["card"] = None
@@ -1733,6 +1742,8 @@ def do_taboo(pid, action, data):
         return {"ok": True}
 
     if action == "tabooStart":
+        if state["phoneMode"] and any(sum(p.get("team") == t for p in state["players"].values()) < 2 for t in (1, 2)):
+            return {"ok": False, "error": "taboo_teams"}
         if tb["phase"] in ("lobby", "gameover"):
             tb["scores"] = {"1": 0, "2": 0}
             tb["activeTeam"] = tb["startTeam"]
@@ -1805,7 +1816,7 @@ def do_taboo(pid, action, data):
                 return {"ok": False, "error": "cant_buzz_own"}
             _taboo_advance("buzz", team if tb["buzzScoresPoint"] else None)
         else:
-            if team != tb["activeTeam"]:
+            if team != tb["activeTeam"] or (state["phoneMode"] and pid != tb.get("clueGiver")):
                 return {"ok": False, "error": "not_your_turn"}
             if action == "tabooGot":
                 _taboo_advance("got", tb["activeTeam"])
@@ -1948,6 +1959,8 @@ def do_codenames(pid, action, data, is_host=False):
     if action == "cnMode":
         if cn["phase"] == "lobby":
             m = data.get("mode")
+            if m == "party" and state["phoneMode"]:
+                return {"ok": False, "error": "phone_mode"}
             if m in ("online", "party"):
                 cn["mode"] = m
                 broadcast()
@@ -2133,6 +2146,11 @@ def do_wii(pid, action, data, is_host=False):
         broadcast()
         return {"ok": True}
 
+    if action == "wiiTouch":
+        if not state["phoneMode"] or pid not in state["players"]:
+            return {"ok": False, "error": "not_allowed"}
+        return do_wii(pid, "wiiCapture", {"pid": pid, "id": data.get("id")}, False)
+
     if action == "wiiSelect":          # host detected an A-press over an item
         # (also (re)used by the host's in-activity "New targets" button, which
         # posts this again with the same pid/item to deal a fresh round)
@@ -2141,6 +2159,8 @@ def do_wii(pid, action, data, is_host=False):
         except (TypeError, ValueError):
             return {"ok": False, "error": "bad"}
         item = data.get("item")
+        if state["phoneMode"] and item != "targets":
+            return {"ok": False, "error": "phone_mode"}
         if any(it["id"] == item for it in w["items"]):
             w["selSeq"] += 1
             w["selection"] = {
@@ -2460,6 +2480,12 @@ def do_imposter(pid, action, data, is_host=False):
         if im["phase"] != "guess" or im["guesser"] != pid:
             return {"ok": False, "error": "not_guessing"}
         im["guessText"] = str(data.get("text", "")).strip()[:40]
+        if not im["guessText"]:
+            return {"ok": False, "error": "empty"}
+        if state["phoneMode"]:
+            normalize = lambda value: " ".join(re.findall(r"\w+", value.casefold()))
+            correct = normalize(im["guessText"]) == normalize(im["word"])
+            return do_imposter(pid, "impGuessJudge", {"correct": correct}, True)
         broadcast()
         return {"ok": True}
 
@@ -3205,6 +3231,16 @@ def _wh_public(for_pid=None):
     return out
 
 
+def _wh_expire():
+    """End the round independently of any connected display. Caller holds _lock."""
+    wh = state["wordhunt"]
+    if (state["game"] == "word-hunt" and wh["phase"] == "playing"
+            and wh["endsAt"] and time.time() >= wh["endsAt"]):
+        wh["phase"] = "review"
+        return True
+    return False
+
+
 def do_wordhunt(pid, action, data, is_host=False):
     """Word Hunt. Caller holds _lock. pid may be None for host-cookie actions."""
     wh = state["wordhunt"]
@@ -3250,6 +3286,8 @@ def do_wordhunt(pid, action, data, is_host=False):
     p["last_seen"] = time.time()
 
     if action == "whFound":
+        if _wh_expire():
+            broadcast()
         if wh["phase"] != "playing":
             return {"ok": True}
         path = data.get("path")
@@ -3278,6 +3316,22 @@ def do_input(data, is_host=False):
     if action in HOST_ONLY and not is_host:
         return {"ok": False, "error": "not_host"}
     with _lock:
+        if action == "hostMode":
+            phone = data.get("mode") == "phone"
+            if data.get("mode") not in ("phone", "screen"):
+                return {"ok": False, "error": "bad_mode"}
+            if phone != state["phoneMode"]:
+                key = {"scattergories": "scat", "wii-sandbox": "wii", "word-hunt": "wordhunt"}.get(state["game"], state["game"])
+                game = state.get(key, {})
+                if game.get("phase", "lobby") not in ("lobby", "gameover", "done", "review", "turnend") or (key == "wii" and game.get("selection")):
+                    return {"ok": False, "error": "finish_round"}
+                state["phoneMode"] = phone
+                if phone and state["codenames"]["phase"] in ("lobby", "gameover"):
+                    state["codenames"]["mode"] = "online"
+                    if state["game"] == "codenames":
+                        _cn_autoteam()
+                broadcast()
+            return {"ok": True}
         if action == "ping":
             touch_player(pid)
             return {"ok": True}
@@ -3308,6 +3362,13 @@ def do_input(data, is_host=False):
                 broadcast()
             return {"ok": True}
 
+        if isinstance(action, str) and action.startswith("bs"):
+            if state["game"] != "bs":
+                return {"ok": False, "error": "Select BS first."}
+            error = bs.act(state["bs"], state["players"], pid, action, data)
+            broadcast()
+            return {"ok": not bool(error), **({"error": error} if error else {})}
+
         if isinstance(action, str) and action.startswith("scat"):
             return do_scat(pid, action, data)
 
@@ -3334,43 +3395,6 @@ def do_input(data, is_host=False):
 
         if isinstance(action, str) and action.startswith("wh"):
             return do_wordhunt(pid, action, data, is_host)
-
-        # start / reset are game-wide controls — the laptop screen or any
-        # phone can trigger them, so they don't require a valid player id.
-        if action == "start":
-            if state["phase"] != "playing":
-                for pl in state["players"].values():
-                    pl["taps"] = 0
-                state["phase"] = "playing"
-                state["winner"] = None
-                broadcast()
-            return {"ok": True}
-
-        if action == "reset":
-            state["phase"] = "lobby"
-            state["winner"] = None
-            for pl in state["players"].values():
-                pl["taps"] = 0
-            broadcast()
-            return {"ok": True}
-
-        p = state["players"].get(pid)
-        if not p:
-            return {"ok": False, "error": "not_joined"}
-        p["last_seen"] = time.time()
-
-        if action == "ping":
-            return {"ok": True}
-
-        if action == "tap":
-            if state["phase"] != "playing":
-                return {"ok": True, "taps": p["taps"]}
-            p["taps"] += 1
-            if p["taps"] >= state["goal"]:
-                state["phase"] = "over"
-                state["winner"] = pid
-            broadcast()
-            return {"ok": True, "taps": p["taps"]}
 
         return {"ok": False, "error": "unknown_action"}
 
@@ -3494,10 +3518,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_file("menu.html", "text/html; charset=utf-8")
         elif path in ("/host", "/host/"):
             self._send_file("host.html", "text/html; charset=utf-8")
-        elif path in ("/play", "/play/"):
+        elif path in ("/play", "/play/", "/host/play", "/host/play/"):
             self._send_file("controller.html", "text/html; charset=utf-8")
+        elif path == "/theme.css":
+            self._send_file("theme.css", "text/css; charset=utf-8")
+        elif path == "/phone-host.js":
+            self._send_file("phone-host.js", "text/javascript; charset=utf-8")
+        elif path == "/bs.js":
+            self._send_file("bs.js", "text/javascript; charset=utf-8")
+        elif path == "/results.js":
+            self._send_file("results.js", "text/javascript; charset=utf-8")
         elif path == "/games":
-            self._send_json({"games": GAMES})
+            catalog = [dict(g, name="Target Practice", tagline="Tap your targets on your phone. First to clear them wins.")
+                       if state["phoneMode"] and g["id"] == "wii-sandbox" else g for g in GAMES]
+            self._send_json({"games": catalog})
         elif path == "/config":
             # public hints: the plain port, and the HTTPS twin port (if running)
             # so a phone can hop to https for motion sensors and back again.
@@ -3532,7 +3566,7 @@ class Handler(BaseHTTPRequestHandler):
                 if _ip is not None and _ip in _kicked:
                     self._send_json({"kicked": True})
                     return
-                if not host and not _valid_pid(pid):
+                if not host and not _player_authenticated(pid, self.headers.get("X-Player-Token")):
                     self._send_json({"locked": True, "game": state["game"],
                                      "players": []})
                     return
@@ -3573,7 +3607,13 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_json({"ok": False, "error": "bad_password"}, 403)
         elif path == "/input":
-            self._send_json(do_input(data, self._is_host()))
+            host = self._is_host()
+            with _lock:
+                allowed = host or data.get("action") in HOST_ONLY or _player_authenticated(data.get("pid"), data.get("token"))
+            if not allowed:
+                self._send_json({"ok": False, "error": "not_joined"}, 403)
+            else:
+                self._send_json(do_input(data, host))
         elif path == "/select":
             if not self._is_host():
                 self._send_json({"ok": False, "error": "not_host"}, 403)
@@ -3703,15 +3743,6 @@ def _start_tunnel(port):
         print("  still no response — using the link anyway; "
               "give it a moment before opening, and reload if the first try fails.")
 
-    # email / text the owner the fresh public links (no-op unless configured)
-    notify.notify_public_link({
-        "url": url,
-        "code": ROOM_CODE,
-        "host_you": f"{url}/host?host={HOST_TOKEN}",
-        "host_other": f"{url}/host",
-        "play": f"{url}/{ROOM_CODE}",
-        "source": f"{sys.platform}",
-    })
     return proc, url
 
 
@@ -3732,12 +3763,29 @@ def _wait_url_live(url, timeout=60):
     return False
 
 
+_notified_startup_urls = set()
+
+
+def _notify_startup():
+    """The GUI and CLI converge here after deciding their final address."""
+    url = base_url()
+    if url in _notified_startup_urls:
+        return
+    _notified_startup_urls.add(url)
+    notify.notify_server_started({
+        "url": url, "code": ROOM_CODE, "public": bool(PUBLIC_URL),
+        "host_you": host_url(), "host_other": f"{url}/host",
+        "play": play_url(), "source": socket.gethostname(),
+    })
+
+
 def _banner(tunnel_on):
     line = "  " + "-" * 62
     print("\n  party-game server running\n")
     print(line)
     print("  HOST — open this to unlock the laptop screen (one click):")
     print(f"      {host_url()}")
+    print(f"  HOST & PLAY on a phone: {base_url()}/host/play?host={HOST_TOKEN}&code={ROOM_CODE}")
     print(f"  From another machine: {base_url()}/host  then the host password")
     if HOST_PASSWORD_AUTO:
         print(f"      (auto-generated, changes every restart): {HOST_PASSWORD}")
@@ -3760,6 +3808,7 @@ def _banner(tunnel_on):
         print(f"      https://{lan_ip()}:{HTTPS_PORT}/{ROOM_CODE}")
         print("  (accept the one-time self-signed cert warning on the phone)")
     print(line + "\n")
+    _notify_startup()
 
 
 def _want_gui():

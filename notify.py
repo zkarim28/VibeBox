@@ -1,41 +1,22 @@
-"""
-Text the owner the public links whenever a new Cloudflare tunnel opens.
+"""Startup notifications for VibeBox (ntfy push, optional SMTP/email-to-SMS).
 
-There is no "just send an SMS" API in the Python stdlib, so the text goes out
-as a short e-mail to your carrier's email-to-SMS gateway. That still needs an
-outgoing mail account (SMTP) to hand the message to — a free Gmail "App
-Password" is the easiest. Nothing is sent unless you configure it.
-
-  REQUIRED for the text (put these in .env):
-      SMTP_HOST      smtp.gmail.com
-      SMTP_PORT      587           (587 = STARTTLS, 465 = SSL)
-      SMTP_USER      your.address@gmail.com
-      SMTP_PASS      16-char Google App Password  (NOT your login password)
-
-  OPTIONAL:
-      NOTIFY_SMS     phone number, digits only    (default: 6313741134)
-      SMS_GATEWAY    carrier gateway host         (default: tmomail.net = T-Mobile)
-                       Verizon vzwpix.com / vtext.com   AT&T txt.att.net
-      NOTIFY_EMAIL   also e-mail the full links here   (off by default; set an
-                     address to turn it on)
-      NOTIFY_WEBHOOK ALSO push via ntfy.sh etc. — a URL the text is POSTed to.
-                     Use this if the carrier filters the SMS (see --test).
-      SMTP_INSECURE  "1" to skip TLS cert verification (last resort if a Mac
-                     can't verify certs and you can't run Install Certificates).
-
-Test it any time WITHOUT opening a tunnel:
-
-      python3 notify.py --test
-
-That sends a real message with dummy links and prints exactly what happened.
+Set NOTIFY_WEBHOOK=https://ntfy.sh/<your-random-topic> in the repo's .env.
+Copy that setting to each computer running VibeBox to use the same topic.
+Optional NOTIFY_TOKEN authenticates to an account-protected ntfy topic.
+Run `python3 notify.py --test-push` to test only ntfy with clearly labelled
+example links. `--test` also tests any configured SMTP destinations.
 """
 
 import os
+import socket
+import time
 import smtplib
 import ssl
 import sys
 import threading
 import urllib.request
+import urllib.error
+from urllib.parse import urlsplit, urlunsplit
 from email.message import EmailMessage
 
 DEFAULT_SMS = "6313741134"
@@ -94,11 +75,11 @@ def _ca_candidates():
     return paths
 
 
-def _ssl_context():
+def _ssl_context(allow_insecure=True):
     """A verifying context that still works on the python.org macOS build,
     whose trust store is empty until 'Install Certificates.command' is run."""
     ctx = ssl.create_default_context()
-    if _env("SMTP_INSECURE").lower() in ("1", "true", "yes"):
+    if allow_insecure and _env("SMTP_INSECURE").lower() in ("1", "true", "yes"):
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
@@ -140,12 +121,48 @@ def _send_email(to_addrs, subject, body):
             s.send_message(msg)
 
 
-def _send_webhook(url, text):
-    req = urllib.request.Request(
-        url, data=text.encode("utf-8"),
-        headers={"Content-Type": "text/plain; charset=utf-8",
-                 "Title": "VibeBox is live", "Tags": "video_game"})
-    urllib.request.urlopen(req, timeout=15).read()
+def _send_webhook(url, text, click=None, play=None):
+    headers = {"Content-Type": "text/plain; charset=utf-8",
+               "Title": "VibeBox is live", "Tags": "video_game"}
+    if click:
+        headers["Click"] = click
+    if click and play:
+        headers["Actions"] = f"view, Host and play, {click}; view, Join game, {play}"
+    if _env("NOTIFY_TOKEN"):
+        headers["Authorization"] = "Bearer " + _env("NOTIFY_TOKEN")
+    req = urllib.request.Request(url, data=text.encode("utf-8"), headers=headers)
+    # Reuse the macOS/Linux CA discovery, but never disable push TLS checks
+    # merely because an SMTP troubleshooting flag was set.
+    context = _ssl_context(allow_insecure=False)
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=15, context=context) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 and exc.code < 500:
+                raise
+            if attempt == 2:
+                raise
+        except (urllib.error.URLError, OSError):
+            if attempt == 2:
+                raise
+        time.sleep(1 + attempt * 2)
+
+
+def _push_message(links):
+    """Push notifications never carry a host unlock token or password."""
+    parts = urlsplit(links.get("url", ""))
+    url = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+    code = links.get("code", "")
+    host = f"{url}/host/play"
+    play = f"{url}/{code}" if code else f"{url}/play"
+    public = links.get("public", True)
+    mode = "Public game" if public else "Local game — join on the same WiFi"
+    computer = links.get("source") or socket.gethostname()
+    text = (f"VibeBox is ready on {computer}.\n{mode}\n\n"
+            f"Host & play (host password required):\n{host}\n\n"
+            f"Players join:\n{play}\n\nRoom code: {code}")
+    return text, host, play
 
 
 def _sms_addr():
@@ -170,7 +187,7 @@ def _compose(links):
                 f"(open {url}/host and enter the host password)")
 
     email_text = (
-        f"VibeBox / Party Games is LIVE on a public link"
+        f"VibeBox / Party Games is LIVE ({'public' if links.get('public', True) else 'local WiFi'})"
         f"{f' ({src})' if src else ''}.\n\n"
         f"HOST (your browser, one-click):\n    {host_you}\n\n"
         f"HOST (any other machine, then the password):\n    {host_other}\n\n"
@@ -180,9 +197,17 @@ def _compose(links):
     return sms_text, email_text
 
 
-def notify_public_link(links):
-    """Fire every configured channel on a daemon thread. Returns immediately."""
-    threading.Thread(target=_run, args=(links,), daemon=True).start()
+def notify_server_started(links):
+    """Notify once startup has picked its final public or LAN URL, off-thread."""
+    if not _smtp_ready() and not _env("NOTIFY_WEBHOOK"):
+        return None
+    thread = threading.Thread(target=_run, args=(dict(links),), daemon=True)
+    thread.start()
+    return thread
+
+
+# Retain the old entry point for callers outside server.py.
+notify_public_link = notify_server_started
 
 
 def _run(links):
@@ -212,10 +237,12 @@ def _run(links):
     hook = _env("NOTIFY_WEBHOOK")
     if hook:
         try:
-            _send_webhook(hook, sms_text)
+            push_text, host, play = _push_message(links)
+            _send_webhook(hook, push_text, click=host, play=play)
             sent.append("push")
         except Exception as exc:
-            failed.append(f"push ({exc})")
+            # Do not log a private topic URL or authorization token.
+            failed.append(f"push ({type(exc).__name__}{': HTTP ' + str(exc.code) if isinstance(exc, urllib.error.HTTPError) else ''})")
 
     if sent:
         print(f"  ✉  sent: {', '.join(sent)}")
@@ -224,13 +251,13 @@ def _run(links):
     return sent, failed
 
 
-def _selftest():
+def _selftest(push_only=False):
     print("VibeBox notify self-test\n" + "-" * 40)
     if not _smtp_ready() and not _env("NOTIFY_WEBHOOK"):
-        print("Not configured. Create .env (see .env.example) with SMTP_HOST, "
-              "SMTP_USER, SMTP_PASS — then run this again.")
+        print("Not configured. Create .env (see .env.example) with NOTIFY_WEBHOOK "
+              "or SMTP_HOST, SMTP_USER, SMTP_PASS — then run this again.")
         return 1
-    if _smtp_ready():
+    if _smtp_ready() and not push_only:
         print(f"SMTP:     {_env('SMTP_USER')} via {_env('SMTP_HOST')}:"
               f"{_env('SMTP_PORT', '587')}")
         print(f"Texting:  {_sms_addr() or '(disabled)'}")
@@ -239,13 +266,27 @@ def _selftest():
     if _env("NOTIFY_WEBHOOK"):
         print(f"Push:     {_env('NOTIFY_WEBHOOK')}")
     print("-" * 40)
-    sent, failed = _run({
+    links = {
         "url": "https://example-test.trycloudflare.com",
         "code": "TEST", "source": "self-test",
         "host_you": "https://example-test.trycloudflare.com/host?host=xxx",
         "host_other": "https://example-test.trycloudflare.com/host",
         "play": "https://example-test.trycloudflare.com/play?code=TEST",
-    })
+    }
+    if push_only:
+        hook = _env("NOTIFY_WEBHOOK")
+        if not hook:
+            print("Set NOTIFY_WEBHOOK in .env first.")
+            return 1
+        try:
+            text, host, play = _push_message(links)
+            _send_webhook(hook, "SETUP TEST — example links only, no game is running.\n\n" + text)
+        except Exception as exc:
+            print(f"Push test failed ({type(exc).__name__}). Check network and ntfy settings.")
+            return 1
+        print("Test accepted by ntfy. Subscribe to this topic on your phone.")
+        return 0
+    sent, failed = _run(links)
     print("-" * 40)
     if failed:
         print("Something failed above. Common fixes:")
@@ -258,11 +299,13 @@ def _selftest():
     print("Handed off OK. Check your phone within ~1 minute.")
     print("If the text never arrives, T-Mobile filtered it (links from email "
           "gateways get blocked sometimes) — set NOTIFY_WEBHOOK to an ntfy.sh "
-          "topic instead; that always lands.")
+          "topic instead, then verify delivery in the ntfy app.")
     return 0
 
 
 if __name__ == "__main__":
+    if "--test-push" in sys.argv:
+        sys.exit(_selftest(push_only=True))
     if "--test" in sys.argv or "-t" in sys.argv:
         sys.exit(_selftest())
     print(__doc__)

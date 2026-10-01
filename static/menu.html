@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Party Games — Menu</title>
+<title>VibeBox — Pick your next game</title>
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0b1120;
-    --panel: #0f172a;
-    --panel-2: #111827;
-    --line: #1e293b;
-    --text: #e8edf6;
-    --muted: #9fb0c7;
-    --accent: #38bdf8;
-    --accent-ink: #04121c;
-    --ready: #4ade80;
+    --bg: #0c0b18;
+    --panel: #171529;
+    --panel-2: #1c1930;
+    --line: #292540;
+    --text: #f0edf9;
+    --muted: #b1abc7;
+    --accent: #b7a4ff;
+    --accent-ink: #171026;
+    --ready: #78e3bc;
     --soon: #fbbf24;
     --focus: #ffffff;
   }
@@ -86,7 +86,7 @@
     transition: border-color 0.15s, transform 0.15s, background 0.15s;
     font: inherit;
   }
-  .game:hover { border-color: #334155; }
+  .game:hover { border-color: #49415f; }
   .game:not([aria-disabled="true"]):hover { transform: translateY(-2px); background: #13203a; }
   .game[aria-disabled="true"] { cursor: not-allowed; opacity: 0.85; background: #0c1424; }
 
@@ -164,13 +164,19 @@
     .game:hover { transform: none; }
   }
 </style>
+<link rel="stylesheet" href="/theme.css">
 </head>
-<body>
+<body class="page-menu">
   <a class="skip-link" href="#main">Skip to game list</a>
   <div class="wrap">
     <header>
-      <h1>Party Games<span class="dot">.</span></h1>
-      <p class="lede">Pick a game on this screen. Players join from their phones and use them as controllers.</p>
+      <p class="eyebrow">GOOD COMPANY. GREAT GAMES.</p>
+      <h1>Vibe<span class="dot">Box</span><span class="brand-star" aria-hidden="true">✳</span></h1>
+      <p class="lede">Your people. Your phones. Game night, sorted.</p>
+      <a class="host-phone-link" href="/host/play">Host &amp; play on this phone →</a>
+      <p class="mode-note">Join as a player, run every game, and invite friends. No TV required.</p>
+      <button id="screen-mode" class="host-phone-link" type="button" hidden>Use shared-screen mode</button>
+      <p id="mode-error" class="mode-note" role="alert"></p>
     </header>
 
     <div class="resume" id="resume" role="region" aria-label="Game in progress">
@@ -260,6 +266,15 @@ async function loadGames() {
   }
 }
 
+$("screen-mode").addEventListener("click", async () => {
+  try {
+    const r = await fetch("/input", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"hostMode", mode:"screen"})});
+    const d = await r.json();
+    $("mode-error").textContent = d.ok ? "Shared-screen mode enabled." : "Finish the current round or return to its lobby before switching modes.";
+    refreshState();
+    loadGames();
+  } catch(e) { $("mode-error").textContent = "Connection lost. Try again."; }
+});
 async function choose(g, ready) {
   if (!ready) {
     announce(`${g.name} is coming soon and can't be started yet.`);
@@ -317,6 +332,7 @@ async function refreshState() {
       <span class="dot" style="background:${p.color}"></span>
       <span class="nm">${escapeHtml(p.name)}${p.connected === false ? " ⟳" : ""}</span>
       <button class="kick" type="button" data-kick="${p.pid}">Kick</button></div>`).join("");
+    $("screen-mode").hidden = !s.phoneMode;
     const resume = $("resume");
     if (s.game) {
       $("resume-text").textContent = `A game is already running.`;

@@ -1,13 +1,51 @@
-# Party Games — laptop screen + phone controllers
+# VibeBox — phone-only or shared-screen game night
 
-A tiny local party-game console. The **laptop** shows a menu and the game
-screen; **phones** on the same WiFi join and act as controllers.
+A small party-game console. Play entirely on phones with one **host-player**,
+or use a **laptop/TV** as a shared display. Join over local WiFi or a public link.
 
-Currently playable: **Tap Race**, **Scattergories**, **Taboo**, **BlackBox**,
-**Codenames**, **Wii Sandbox**, **Imposter**, **Mafia**, **Ludo**, and
-**Word Hunt**. More games are stubbed on the menu as "Coming soon".
+Currently playable: **Scattergories**, **Taboo**, **BlackBox**,
+**Codenames**, **Wii Sandbox**, **Imposter**, **Mafia**, **Ludo**,
+**Word Hunt**, and **BS**. More games are stubbed on the menu as "Coming soon".
 
 No dependencies — just Python 3 (stdlib only).
+
+## Host and play on a phone
+
+1. Start the server as usual, using Public mode for an internet-accessible room.
+   The Python server still runs on the hosting computer; no TV or open host
+   browser is needed during play.
+2. Open `<public-or-LAN-address>/host/play` on your phone and enter the host
+   password. The normal host menu also has **Host & play on this phone**;
+   the Launcher offers **Host & play on phone** for each running server.
+   Startup prints a private one-click phone-host link too.
+3. Enter your player name. **Play** is your normal player view, including only
+   your own private cards/role. **Host controls** lets you select games, change
+   settings, start/end rounds, advance reviews, manage players, and share the
+   ordinary player link and QR. Other players use that ordinary link.
+4. Reloading resumes your same player seat. Host access uses the existing host
+   cookie/password; player requests authenticate with their saved player token.
+
+Phone mode applies to the room. Finish the active round or return to its lobby
+before changing modes. Open **Room setup & mode** on the host display, then
+**Use shared-screen mode** on the menu to return to the original setup.
+
+Phone-only game adaptations:
+
+- **Taboo:** at least two players per team. A rotating clue-giver and the
+  opposing team see the card; guessing teammates never receive it.
+- **Codenames:** uses the online rules, with a private key for each spymaster.
+- **Imposter:** typed guesses are checked automatically (ignoring case,
+  punctuation, and extra spacing). The host can be an imposter too.
+- **Mafia:** one phone belongs to the moderator, who receives no role. Choose
+  someone else as moderator if the host wants to hold a card.
+- **Target Practice:** the Wii Sandbox becomes a touch-target race in phone
+  mode. Motion activities remain available in shared-screen mode.
+- **Word Hunt:** the server ends the timer without relying on any host display.
+- **Scattergories, BlackBox, and Ludo:** boards, answers, judging, results, and
+  round controls are available on phones.
+
+Games with spoken clues or discussion still use conversation in the room, or a
+separate voice call for remote players. VibeBox does not provide voice chat.
 
 ## Running it
 
@@ -76,12 +114,31 @@ git-ignored `.env` file is the easy way — see below); leave it unset and the
 server generates a random one each start and prints it in the startup banner.
 Your own `?host=…` bookmark still unlocks in one click.
 
-### Get the public link emailed / texted to you
+### Get startup links on your phone with ntfy
 
-Every time a new Public (Cloudflare) link is created, the server can send you
-the host + player links. Copy `.env.example` to `.env` and fill in either SMTP
-details (e.g. a Gmail app-password) or a free `NOTIFY_WEBHOOK` (ntfy.sh). The
-launcher loads `.env` automatically. Nothing is sent unless you configure it.
+Set `NOTIFY_WEBHOOK=https://ntfy.sh/your-long-random-topic` in the git-ignored
+`.env` file (see `.env.example`). Subscribe to that same topic in the ntfy app
+on your phone and allow notifications. Keep the randomly named topic private.
+
+Every server startup sends the **Host & play** link, guest join link, room code,
+and computer name. Tap the notification to open the phone host; your host
+password is still required. Push messages never include the host unlock token.
+This works from the terminal, desktop window, and launcher, including a fixed
+`PUBLIC_URL`. Local starts send a link labelled for the same WiFi network;
+choose Public mode for links people can open remotely.
+
+Use the **same `NOTIFY_WEBHOOK` setting on every computer** running VibeBox.
+The server loads `.env` automatically; the topic is not stored in Git.
+Optional `NOTIFY_TOKEN` supplies a bearer token for protected ntfy topics.
+Test the setup without starting a game:
+
+```sh
+python3 notify.py --test-push
+```
+
+The test is clearly labelled and contains example links. Sending happens in
+the background with retries for temporary failures. Optional SMTP email/SMS
+settings are also supported; `python3 notify.py --test` tests those too.
 
 ### Start games from your phone — the Launcher
 
@@ -119,14 +176,15 @@ Manage the service: `systemctl --user {status,restart,stop} vibebox-launcher`.
 ## Taboo
 
 Two teams. Everyone can join with their own phone (players are auto-split; switch
-in the lobby). A card (guess word + 5 forbidden "taboo" words) shows on the big
-screen.
+in the lobby). In shared-screen mode, a card (guess word + 5 forbidden words) shows on the big
+screen. In phone mode, a rotating clue-giver sees it on their phone while
+their teammates guess; the opposing team can see it to check for taboo words.
 
 Before every turn there's a 5-second **"get ready"** countdown (big screen shows
 the team that's up; each phone tells its player their role). The host can tap
 **Start now** to skip it. Then the turn runs for 60 seconds:
 
-- **Every phone on the clue-giving team** shows the card with **✓ Got it**
+- **Every phone on the clue-giving team** in shared-screen mode shows the card with **✓ Got it**
   (+1 point) and **Skip** buttons.
 - **Every phone on the other team** shows the same card with a **🔔 Taboo!**
   buzzer — tap it if the clue-giver says the word or a listed word. The buzzer
@@ -282,7 +340,8 @@ falls back to the terminal prompt.
    is the path), then a name and **Join**. Plain **`<addr>/`** works too — they
    just enter the code by hand.
 3. On the laptop, pick a game. Players' phones switch to that controller.
-4. In Tap Race: **Space** starts / restarts, **R** returns to the lobby.
+4. For phone-only play, choose **Host & play on this phone** and use the
+   **Play / Host controls** tabs.
 
 The laptop always shows a **👥 Players** control (top-right on the game screen,
 under the join QR on the menu). Tap **Kick** next to a name to remove that
@@ -321,6 +380,7 @@ for a stable host bookmark), `MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / 
 | `GET /` → `static/menu.html` | The games menu (host only). A non-host request 302s to `/play`, so a player can type the bare domain. Lists games from `GET /games`. |
 | `GET /<code>`, `/j/<code>`, `/join` | 302 → `/play?code=<code>` — the short player links. `<code>` must match the room code (a mismatch 404s). |
 | `GET /host` → `static/host.html` | The game screen. One shell, a view per game, switched by `state["game"]`. Polls `/state` ~2×/second for updates (SSE didn't survive the Cloudflare tunnel). |
+| `GET /host/play` → `static/controller.html` + `static/phone-host.js` | Password-protected host-player setup, private player view, and a separate host-controls tab. |
 | `GET /play` → `static/controller.html` | The phone controller. One shell: "waiting" screen, then the current game's controls. |
 | `GET /?host=<token>` | Sets the host cookie (302 → clean path). Any laptop screen needs this cookie or it shows "locked". |
 | `GET /amihost` | `{host: bool, code}` from the request's cookie — the menu/host pages use it to lock themselves. |
@@ -329,15 +389,41 @@ for a stable host bookmark), `MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / 
 | `GET /phoneQR.png` | *(host only)* QR of the join URL (carries `?code=`). Regenerates when the address changes. |
 | `POST /select` | *(host only)* `{game}` — pick a game (or `null` for the menu). |
 | `POST /join` | `{name, code}` — code must match; rate-limited per IP; capped at `MAX_PLAYERS`. Returns `pid` + color or `{error}`. |
-| `POST /input` | `{pid, action, ...}`. Player actions (`tap`, `scatAnswers`, `scatVote`, `tabooGot/Skip/Buzz`, `tabooTeam`, `leave`, `ping`) are open. Host-only actions (`start`, `reset`, `kick`, `scatStart/Set/EndRound/Next/Lobby/ResetScores`, `tabooStart/Set/BeginTurn/EndTurn/NextTurn/EndGame/NewGame`) require the host cookie — see `HOST_ONLY` in `server.py`. `kick` (`{action:"kick", pid}`) drops that player; their next `/state` poll returns `{kicked:true}` and the controller bounces to the join screen. |
-| `GET /state?pid=<id>` | Latest state. Needs the host cookie **or** a valid `pid`; otherwise returns `{locked: true}`. A present `pid` also refreshes that player's heartbeat — the controller polls ~2×/second, so it doubles as the keep-alive. |
+| `POST /input` | `{pid, token, action, ...}` for player actions. Host controls require the host cookie (`HOST_ONLY` and role-aware game handlers). `hostMode` changes the room setup between `phone` and `screen`. |
+| `GET /state?pid=<id>` | Latest private player state, authenticated with `X-Player-Token`; host-cookie requests can read the shared view without a player ID. Polling also refreshes the player's heartbeat. |
 | `GET /events` | *(host only)* legacy SSE stream — unused now (the host polls). |
 
 **Disconnects:** the controller's `/state?pid=` poll is the heartbeat. A player
-that goes silent for `PLAYER_TIMEOUT` (6s) is dropped by `janitor()` (checked
-every second). Closing / navigating the controller page fires a `leave` beacon
-so a deliberate exit is near-instant. State served to clients is in
+that goes silent for `PLAYER_TIMEOUT` (6s) is marked reconnecting. They retain
+their seat for `PLAYER_GRACE` (90s). Closing/navigating the controller sends a
+`leave` beacon; the player can still resume with their saved token. State served to clients is in
 `public_state()`; per-game blocks hang off it (`scat`, `taboo`).
+
+## Joining and phone results
+
+The host game screen keeps a shared joining QR, room code, and link visible
+throughout every game phase. It uses a side panel on large displays and a
+sticky banner on smaller screens.
+
+Phones show ranked results after Scattergories rounds, Taboo turns
+and games, BlackBox rounds and games, and Word Hunt rounds. Round points and
+cumulative totals are labelled separately, ties share a rank, and your own
+row is highlighted. Codenames includes final team results; Wii Target Practice
+shows finish order as players complete their targets.
+
+The score-to-results mapping is in `static/results.js`. Run its regression
+checks with `node --test tests/results.test.cjs` (Node is only needed for these
+checks, not for running VibeBox). Phone-only game and authorization tests run
+with `python3 -m unittest discover -s tests`.
+
+## Visual theme
+
+`static/theme.css` supplies the shared midnight-indigo, lavender, and mint theme
+for the menu, host display, phone controllers, and launcher. Page-specific
+layouts stay in their HTML files; team colors and game feedback retain their
+meaning. Hover effects apply to mouse/trackpad devices, keyboard focus is
+visible, and reduced-motion preferences disable decorative animation. The
+desktop control window uses the matching palette in `gui.py`.
 
 ## Adding a game
 
@@ -351,7 +437,6 @@ so a deliberate exit is near-instant. State served to clients is in
 
 ## Tweaks
 
-- Tap Race win target: `GOAL` in `server.py`.
 - Scattergories categories / letters: `CATEGORY_POOL`, `LETTERS` in `scattergories.py`.
 - Taboo cards: `_CARDS` in `taboo.py` (guess word + 5 taboo words per tuple).
 - Port: `PORT` in `server.py`.
@@ -371,7 +456,7 @@ What's protected:
   host game controls) need the host cookie, set only by opening the printed
   `?host=<token>` link. A random visitor gets a "locked" page.
 - **Joining** needs the room code. `/state` gives nothing useful without the
-  cookie or a live `pid`, so a stray link-holder can't even spectate.
+  cookie or a valid player ID and token, so a stray link-holder can't even spectate.
 - Rate limit on join attempts (slows room-code guessing) and a hard player cap.
 
 What's still true:
@@ -383,3 +468,24 @@ What's still true:
   actively playing, and don't treat this as hardened infrastructure.
 - `HOST_TOKEN` regenerates every run unless you set it — so does the room code
   unless you set `ROOM_CODE`.
+
+## BS (Bullshit / Cheat)
+
+For 2–10 players (best with 3–6). Choose one or two standard decks in the
+lobby; every card is dealt evenly and the Ace of Spades starts. Each player
+selects 1–4 cards (up to 8 with two decks) privately on their phone, claiming
+the current rank: Aces through Kings, then back to Aces. Any cards may be
+played, so bluffing is allowed.
+
+Other players have **8 seconds** to tap **Call BS!**. Only the latest play is
+revealed: a liar picks up the entire pile, otherwise the challenger does.
+After a five-second reveal, the next player takes the next rank. Without a
+challenge, the pile stays face-down and play advances automatically. The
+first empty hand wins only after its final challenge window resolves.
+
+Works in phone-host and computer-host modes; all phones show claims,
+challenges, card counts, and the winner. The shared display never sees hands.
+Players joining mid-game watch until the next deal. A temporarily disconnected
+player keeps their hand; the host can end the deal from Host controls if
+someone cannot return. A removed or expired player ends the deal without
+awarding a winner, so the host can deal again.
