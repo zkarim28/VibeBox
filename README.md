@@ -1,5 +1,9 @@
 # VibeBox — phone-only or shared-screen game night
 
+[![zkarim28/vibebox, explained in a one-minute video](https://gitdiagram.com/api/video/file?username=zkarim28&repo=vibebox&format=poster)](https://gitdiagram.com/zkarim28/vibebox/video)
+
+[![Watch a one-minute video tour of vibebox](https://gitdiagram.com/video-badge.svg)](https://gitdiagram.com/zkarim28/vibebox/video)
+
 A small party-game console. Play entirely on phones with one **host-player**,
 or use a **laptop/TV** as a shared display. Join over local WiFi or a public link.
 
