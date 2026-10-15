@@ -1,0 +1,333 @@
+# How VibeBox is wired
+
+A map of how the pieces connect: processes, the server's state machine, the
+pages, and the conventions each game follows. The README covers *using* it;
+this file covers *changing* it.
+
+---
+
+## 1. The big picture
+
+```
+                 boot (systemd --user, linger on)
+                 ├── vibebox-online.service ──► start-online.sh ──► server.py  (MODE=public, port 8000)
+                 │                                                   └── cloudflared quick tunnel
+                 └── vibebox-launcher.service ─► launcher.py (port 8790, via Tailscale Funnel)
+                                                     └── spawns more server.py's on demand (ports 8000-8019)
+
+  server.py (one room, one game at a time)
+     │  notify.py ──► ntfy push (NOTIFY_WEBHOOK) [+ optional SMTP / email-to-SMS]
+     │  qr.py     ──► join QR codes
+     ▼
+  HTTP (stdlib ThreadingHTTPServer, JSON over fetch)
+     ├── /           menu.html        game picker (laptop / TV)
+     ├── /host       host.html        shared screen for the current game
+     ├── /play       controller.html  each player's phone
+     ├── /host/play  controller.html + phone-host.js   host who is also a player (no TV)
+     └── /sudoku     sudoku-home.html OPEN Sudoku page: no password / room code,
+                                      its own tables (sudoku_tables.py), independent of the room
+```
+
+No dependencies: Python 3 stdlib on the server, plain HTML/JS/CSS on the pages
+(no build step, no framework).
+
+---
+
+## 2. Processes and boot
+
+| Piece | What it does |
+|---|---|
+| `start-party-games.sh` | Interactive start. Loads `.env`, frees ports 8000/8443, runs `server.py`, which asks Local or Public (or opens the Tk window in `gui.py`). |
+| `start-online.sh` | Non-interactive start for boot. Forces `MODE=public GUI=0 NO_HTTPS=1`, waits up to 3 min for the internet, runs `server.py`. If the tunnel fails, the server would fall back to LAN-only. The script watches for that ("running LOCAL instead"), kills the server and exits 1 so systemd retries. |
+| `deploy/vibebox-online.service` | systemd user unit for `start-online.sh` (`Restart=on-failure`, 20 s back-off, no start limit). Installed copy: `~/.config/systemd/user/`. |
+| `launcher.py` + `setup-launcher.sh` | Password-gated control panel on `127.0.0.1:8790`, exposed with `tailscale funnel`. Each "start" spawns `server.py` with `MODE=public`, a free port from 8000-8019, its own room code and host token. Tracks them in `~/.vibebox-launcher/servers.json`; logs in `~/.vibebox-launcher/logs/`. |
+| `gui.py` | Optional Tk control window for interactive local runs. |
+
+**Startup sequence inside `server.py main()`:** bind HTTP port → start the
+`janitor` thread → optional HTTPS twin on 8443 (self-signed, for phone motion
+sensors; skipped with `NO_HTTPS=1`) → choose mode (GUI / `MODE` env / prompt)
+→ `_start_tunnel()` launches `cloudflared` and scrapes the
+`*.trycloudflare.com` URL → `_banner()` prints links → `_notify_startup()`
+sends the ntfy push once per URL.
+
+**Logs and the current link:** `journalctl --user -u vibebox-online -o cat`.
+A restart always makes a new tunnel URL and a new push.
+
+### Environment (`.env`, git-ignored)
+
+`.env` is read twice: `bash` sources it in the start scripts (so quote values
+with `!`, `$`, spaces), and `notify.load_env_file()` reads it in Python
+**without overriding** variables already set (so an empty `NOTIFY_WEBHOOK=` on
+the command line really disables pushes).
+
+| Var | Effect |
+|---|---|
+| `NOTIFY_WEBHOOK`, `NOTIFY_TOKEN` | ntfy topic URL (+ auth) for startup pushes. |
+| `SMTP_*`, `NOTIFY_SMS`, `SMS_GATEWAY`, `NOTIFY_EMAIL` | Optional email / text copy of the link. |
+| `HOST_PASSWORD` | Fixed host password. Unset means a random one per start, printed in the banner. |
+| `MODE` | `local` / `public`; skips the prompt and the GUI. |
+| `PUBLIC_URL` | Use an existing URL instead of a quick tunnel. |
+| `PORT`, `HTTPS_PORT`, `NO_HTTPS`, `ROOM_CODE`, `HOST_TOKEN`, `MAX_PLAYERS`, `JOIN_MAX` | Server knobs (the launcher sets several per instance). |
+| `ONLINE_PORT` | Port used by `start-online.sh` (default 8000). |
+| `SUDOKU_HISTORY` | Where the Sudoku play log lives. |
+| `LAUNCHER_PASSWORD`, `LAUNCHER_PORT`, `LAUNCHER_PORT_BASE`, `LAUNCHER_MAX` | Launcher knobs. |
+
+Port note: the boot server holds 8000 and the launcher's range also starts at
+8000. That's fine, because the launcher test-binds each port and skips busy ones.
+
+---
+
+## 3. Inside `server.py`
+
+### One global state, one lock
+
+```python
+state = {
+  "game": None | "<GAMES id>",   # None = menu
+  "phoneMode": bool,             # host is on a phone (no shared screen)
+  "players": {pid: {name, color, score, team, token, last_seen, connected}},
+  "scat": {...}, "taboo": {...}, ..., "wordhunt": {...},   # one sub-state per game
+  "bs": bs.fresh(), "sudoku": sudoku.fresh(),
+}
+_lock    # every read-modify-write of `state` happens under this
+```
+
+Every game keeps its sub-state alive the whole time. `do_select(game)` resets
+them all to lobby form (keeping settings like round length) when the host
+switches games.
+
+### The request → state → response loop
+
+```
+phone tap ──POST /input {pid, token, action, ...}──► Handler.do_POST
+    auth: host cookie, OR action in HOST_ONLY (then rejected), OR pid+token match
+    └─► do_input(data, is_host)
+          ├── HOST_ONLY check (host-cookie-only actions)
+          ├── room-wide actions: hostMode, ping, leave, kick
+          └── dispatch by ACTION PREFIX:
+                bs*    → bs.act(...)            (module engine)
+                sd*    → sudoku.act(...)        (module engine)
+                scat*  → do_scat   taboo* → do_taboo   blackbox* → do_blackbox
+                cn*    → do_codenames   wii* → do_wii   imp* → do_imposter
+                mafia* → do_mafia   ludo* → do_ludo   wh* → do_wordhunt
+          └─► broadcast()   (pushes JSON to /events subscribers)
+
+every page ──GET /state?pid=N──► public_state(for_pid)
+    {game, phoneMode, players[], scat|taboo|...|sudoku: <only the active game's view>}
+```
+
+* **Prefix routing matters.** A new game's actions need a unique prefix, and
+  the prefix check order in `do_input` is significant (`bs` before `scat`, and
+  so on).
+* **`public_state(for_pid)`** is the only thing clients ever see. Per-game
+  `_x_public()` / `module.public()` builds a view for that player. Private
+  information (hands, roles, spymaster keys, Sudoku solutions) is filtered
+  here, never on the client.
+* **`janitor()`** runs every second under the lock: timers (Scattergories,
+  Taboo, BlackBox, Word Hunt, BS challenge windows), `sudoku.tick()` (ends a
+  race once everyone left has finished), and `reap_players()`.
+* **Players** stay marked `connected` while their `/state?pid=` polls keep
+  arriving. After `PLAYER_TIMEOUT` (6 s) they show as reconnecting; after
+  `PLAYER_GRACE` (90 s) `_purge_player()` scrubs them from every sub-state.
+  Kicked pids go into `_kicked` so their next poll tells them to leave.
+* **Room-mode switch** (`hostMode`) is refused mid-round. It looks up the
+  active game's sub-state through a small id→key map
+  (`{"scattergories": "scat", "wii-sandbox": "wii", "word-hunt": "wordhunt"}`)
+  and allows only `lobby / gameover / done / review / turnend` phases.
+
+### HTTP routes
+
+| GET | |
+|---|---|
+| `/` | menu (host) |
+| `/host` | shared screen; `/host/play`, `/play` → controller |
+| `/theme.css`, `/phone-host.js`, `/bs.js`, `/sudoku.js`, `/results.js` | static. **Each file needs its own explicit route**; there is no static-directory catch-all. |
+| `/games` | the `GAMES` catalog |
+| `/state[?pid=]` | `public_state()`; also the player heartbeat |
+| `/events` | server-sent events stream of public state (clients currently poll `/state` instead) |
+| `/whoami`, `/config`, `/amihost`, `/phoneQR.png` | links, room code, host check, QR |
+| `/<CODE>` | short join link → `/play?code=…` |
+| `/sudoku[?t=<table>]` | the open Sudoku landing page |
+
+| POST | |
+|---|---|
+| `/join` | name + room code → `{pid, token}` (rate-limited per IP) |
+| `/resume` | pid + token → rejoin after reload |
+| `/unlock` | host password → sets host cookie (rate-limited) |
+| `/input` | every game action |
+| `/select` | host picks a game (or `null` for the menu) |
+| `/sd/hello · tables · create · enter · leave · input · state` | open Sudoku page API (see §6b). Everything is a POST so tokens stay out of URLs. |
+
+### Auth model
+
+* **Host:** cookie `hosttoken=<HOST_TOKEN>`. Set either by opening a
+  `?host=<token>` link (the banner's one-click link) or by POSTing the
+  password to `/unlock`. `HOST_ONLY` lists the actions that need it.
+* **Player:** `pid` + per-player `token` returned by `/join`, kept in the
+  phone's storage, sent on every `/input`.
+* **Open Sudoku visitor:** `mid` + `token` from `/sd/hello` (name only),
+  kept in `localStorage` (`sd-home`). Completely separate from room players;
+  it can only reach `/sd/*`, never `/input` or `/select`.
+* ntfy pushes **never** include the host token. The "Host and play" link
+  still asks for the password.
+
+---
+
+## 4. The pages
+
+| File | Role |
+|---|---|
+| `static/menu.html` | Game grid from `/games`; host picks → `/select` → navigates to `/host`. Polls state every 2 s. |
+| `static/host.html` | One `#view-<game>` per game, toggled by `s.game`. `render(s)` dispatches to `renderScat`, `renderTaboo`, … Unknown game → back to `/`. Polls with `pollHost()`. |
+| `static/controller.html` | Join form, then one container per game (`#scat`, `#bs`, `#sudoku`, …). `setView(game)` toggles them; `pollState()` (also the heartbeat) dispatches to the game's renderer; `s_poll_delay()` sets per-game poll speed (300-700 ms). `send(action, extra)` adds `pid` and `token`. |
+| `static/phone-host.js` | Only active on `/host/play`. Adds the "Host controls" tab: unlock gate, game picker, per-game **settings** (`settings()` uses the `number` / `toggle` / `choice` / `textSetting` helpers) and **buttons** (`controls()`), roster with kick. Settings forms post `{action, key, value}`. |
+| `static/results.js` | `VibeResults.fromState()`: shared leaderboard panel for phones. |
+| `static/bs.js`, `static/sudoku.js` | **Self-contained game views** (see §5). |
+| `static/theme.css` | Shared look plus the newer games' styles (`.bs-*`, `.sd-*`). Older games keep their CSS inline in host/controller HTML. |
+
+---
+
+## 5. Two styles of game
+
+**Older, inline games** (Scattergories, Taboo, BlackBox, Codenames, Wii,
+Imposter, Mafia, Ludo, Word Hunt): `fresh_x()`, `_x_public()`, `do_x()`
+live inside `server.py`; markup, CSS and JS live inside `host.html` and
+`controller.html`.
+
+**Newer, modular games** (BS, Sudoku): this is the pattern to copy.
+
+```
+game.py               fresh() · act(g, players, pid, action, data) · public(g, players, pid) · tick/expire(g)
+                      pure engine; the caller already holds the lock
+static/game.js        globalThis.GameView.render(root, state, pid, send, isHost)
+                      draws the phone AND the shared screen (isHost=true adds the host controls)
+server.py             import · HOST_ONLY · GAMES entry · state[...] · public_state · janitor hook
+                      · do_select reset · do_input prefix dispatch · static route for game.js
+controller.html       <div id="game"> · <script src> · setView toggle · waiting-list · render call · poll delay
+host.html             <div id="view-game"> · <script src> · game-list check · render call
+phone-host.js         settings() case · controls() case
+tests/test_game.py    engine tests + a couple through server.do_input
+```
+
+Checklist for a new modular game: every bullet above. Search for `sudoku`
+across the repo to see each touch point.
+
+---
+
+## 6. Sudoku specifics
+
+```
+sudoku_puzzles.py   solver (backtracking, counts solutions up to 2)
+                    grader: replays human techniques, records the hardest one needed
+                      singles → easy/medium (by clue count) · pointing/claiming → advanced
+                      pairs/triples → hard · X-wing/swordfish/XY-wing → expert
+                    generator: random full grid → dig symmetric pairs while unique & ≤ target level
+                    transform(): digit relabel + row/col/band/stack shuffles + transpose
+                    CLI: --per-level N (grow bank) · --stats
+sudoku_puzzles.json committed bank: {level: [{id, p, s}]}, 150 per level
+sudoku.py           engine: modes competitive / coop / zen, actions sd*
+                    history: sudoku_history.json (git-ignored), append-only plays
+                    pick(): a board none of the current names has played, else the oldest; then transform()
+                    CLI: --history
+sudoku_tables.py    open /sudoku page: visitors, tables, owners, cleanup (§6b)
+static/sudoku.js    board UI, notes, skins, hints, spectating, chat, keyboard
+static/sudoku-home.html  the open landing page
+```
+
+* **Never send the solution.** `sudoku.public()` sends `puzzle` (givens) and
+  `cells` only. Competitive and co-op moves are checked on the server; a wrong
+  digit returns `{correct: false}` and is never stored.
+* **Zen** stores any digit, checks nothing until the board equals the
+  solution, and highlights repeats on the client.
+* **History** is keyed by player **name** (case and spacing ignored), since
+  players have no accounts. Rows are written when a round ends, when the host
+  ends or leaves a round, when the host switches games (`do_select` calls
+  `sdLobby` first), or when a Zen player solves or abandons a board.
+* `BANK` loads once at import, so a regenerated bank needs a server restart.
+* **Phone-only state:** pencil-mark notes (`sd:<seat rid>`) and the chosen
+  board skin (`sd-skin`) live in `localStorage`. Skins are CSS-variable sets
+  on `[data-skin=…]` in `theme.css`. Notes mode adds `.sd-noting` to the
+  grid, which swaps to the `--sd-nm-*` variables (grey board, white notes).
+
+---
+
+## 6b. The open Sudoku page
+
+```
+sudoku-home.html ──POST /sd/*──► Handler._sudoku_tables ──► TABLES (sudoku_tables.Tables, own lock)
+                                                              ├── visitors {mid: name, token, color}
+                                                              ├── tables {tid: owner, players, seen, g = sudoku.fresh()}
+                                                              └── same sudoku.act / public / tick as the party room
+```
+
+* A table's `players` dict is passed to the engine as its "room", so every
+  engine rule (modes, hints, chat, spectating, history) is shared with the
+  party room.
+* Owner-only actions: `TABLE_ONLY = {sdSet, sdStart, sdEnd, sdLobby}` (+
+  `sdListed`). Ownership passes to the next member when the owner leaves.
+* Cleanup is lazy (on requests): a member who stops polling for 60 s
+  leaves; an empty table logs any open boards and is deleted. A page reload
+  does **not** leave (so a solo game survives it); the `?t=` link rejoins.
+* Limits: 40 tables, 30 per table, 500 visitors, `/sd/hello` 10/min per IP,
+  table creation 8/min per visitor, chat 1 message / 0.7 s, 200 chars.
+* The page calls `SudokuView.render(el, {sudoku}, mid, send, false,
+  {controls: isOwner})`. `controls` shows round controls on a phone; the 5th
+  arg (`isHost`) still means "shared laptop/TV display".
+
+### Hints, spectating, chat (engine, both contexts)
+
+* `sdHint` → `sudoku_puzzles.hint(puzzle, cells, solution)`: flags a wrong
+  digit first, else finds a hidden/naked single, applying elimination
+  techniques (pointing, pairs, X-wing…) until one appears, and explains it.
+  Counted per seat (`hints`), +`HINT_PENALTY` s in competitive.
+* `sdWatch {target}` puts the viewer in `g.watchers` and `g.peeked`;
+  `public()` then adds `spectate` (target's cells + **solution**). Allowed
+  only for people without an unfinished seat on that board. Co-op peekers
+  can't `sdJoin`.
+* `sdChat`: messages from anyone who knows the solution (peeked, or finished
+  a race) are flagged `spoiler` and filtered out of `public()` for viewers
+  still solving, until the round ends. Chat survives `_reset()` between
+  rounds.
+
+## 7. Persistence (everything else is in memory)
+
+| File | Written by |
+|---|---|
+| `.env` | you |
+| `sudoku_history.json` | `sudoku.py` |
+| `.certs/` | `ensure_self_signed_cert()` for the HTTPS twin |
+| `~/.vibebox-launcher/{password,servers.json,logs/}` | `launcher.py` |
+
+Restarting `server.py` clears players, scores and rounds. The Sudoku history
+survives restarts.
+
+---
+
+## 8. Tests
+
+```
+python3 -m unittest discover -s tests
+```
+
+`test_phone_mode.py` (room and host flows through `server.do_input`),
+`test_bs.py`, `test_sudoku.py` (bank validity, every mode, no solution leaks,
+board picking), `test_notify.py`, plus `results.test.cjs` (needs Node).
+Tests reset `server.state` from a deep copy in `setUp`. Sudoku tests point
+`sudoku.HISTORY_PATH` at a temp file.
+
+---
+
+## 9. Gotchas found along the way
+
+* `server.py` silently **falls back to local** if the tunnel fails; only
+  `start-online.sh` treats that as an error.
+* The HTTPS twin (8443) collides between instances; anything scripted should
+  set `NO_HTTPS=1`, as the launcher and `start-online.sh` do.
+* Static files need explicit routes in `Handler.do_GET`.
+* Game lists are repeated in several places: `controller.html`
+  `setView()`'s "waiting" list, `host.html`'s redirect guard, and the
+  `hostMode` key map. Miss one and the page bounces to the menu or shows
+  "waiting".
+* `HOST_PASSWORD` unset means a new password every restart.
+* To run a throwaway test server without touching the live one or your ntfy:
+  `PORT=8123 NO_HTTPS=1 MODE=local NOTIFY_WEBHOOK= SMTP_HOST= SUDOKU_HISTORY=/tmp/h.json python3 server.py --no-gui`

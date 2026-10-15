@@ -38,6 +38,8 @@ import scattergories  # local, Scattergories data + rules
 import taboo          # local, Taboo card deck
 import bs
 import wordhunt       # local, Word Hunt board generator + dictionary
+import sudoku         # local, Sudoku engine + puzzle bank + play history
+import sudoku_tables  # local, open Sudoku tables for the public /sudoku page
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8000"))
@@ -99,6 +101,7 @@ _join_hits = {}             # ip -> [timestamps]
 # Actions only the host screen may trigger.
 HOST_ONLY = {
     "bsStart", "bsLobby", "bsSet",
+    "sdSet", "sdStart", "sdEnd", "sdLobby",
     "kick", "hostMode",
     "scatStart", "scatSet", "scatEndRound", "scatNext", "scatLobby", "scatResetScores",
     "tabooStart", "tabooSet", "tabooBeginTurn", "tabooEndTurn", "tabooNextTurn",
@@ -190,6 +193,14 @@ GAMES = [
         "emoji": "\N{LEFT-POINTING MAGNIFYING GLASS}",
     },
     {
+        "id": "sudoku",
+        "name": "Sudoku",
+        "tagline": "Race the same board, solve one together, or unwind in Zen mode. Five difficulty levels.",
+        "players": "1-20 players",
+        "status": "ready",
+        "emoji": "\N{INPUT SYMBOL FOR NUMBERS}",
+    },
+    {
         "id": "doodle-dash",
         "name": "Doodle Dash",
         "tagline": "Draw the prompt on your phone; everyone guesses.",
@@ -223,6 +234,10 @@ GAMES = [
     },
 ]
 PLAYABLE = {g["id"] for g in GAMES if g["status"] == "ready"}
+
+# The open Sudoku landing page (/sudoku): no password or room code, its own
+# tables, independent of whatever the party room is playing.
+TABLES = sudoku_tables.Tables(COLORS)
 
 
 def lan_ip():
@@ -606,6 +621,7 @@ state = {
     "ludo": fresh_ludo(),
     "wordhunt": fresh_wordhunt(),
     "bs": bs.fresh(),
+    "sudoku": sudoku.fresh(),
 }
 _next_pid = [1]
 # pids the host has kicked — their controller's next /state poll gets
@@ -1234,6 +1250,7 @@ def public_state(for_pid=None):
     players.sort(key=lambda p: p["pid"])
     return {
         "bs": bs.public(state["bs"], state["players"], for_pid) if state["game"] == "bs" else None,
+        "sudoku": sudoku.public(state["sudoku"], state["players"], for_pid) if state["game"] == "sudoku" else None,
         "game": state["game"],
         "phoneMode": state["phoneMode"],
         "players": players,
@@ -1365,6 +1382,8 @@ def janitor():
                     changed = True
                 elif bs.expire(g):
                     changed = True
+            if state["game"] == "sudoku" and sudoku.tick(state["sudoku"], state["players"]):
+                changed = True
             # end a Scattergories round when its timer runs out
             scat = state["scat"]
             if (state["game"] == "scattergories" and scat["phase"] == "playing"
@@ -1465,6 +1484,7 @@ def do_select(game):
             return {"ok": False, "error": "unknown_game"}
         state["game"] = game
         state["bs"] = bs.fresh(state["bs"]["decks"])
+        sudoku.act(state["sudoku"], state["players"], None, "sdLobby", {})   # records any open round
         # keep the chosen game's settings, drop any in-progress round
         keep = state["scat"]
         state["scat"] = fresh_scat()
@@ -3369,6 +3389,13 @@ def do_input(data, is_host=False):
             broadcast()
             return {"ok": not bool(error), **({"error": error} if error else {})}
 
+        if isinstance(action, str) and action.startswith("sd"):
+            if state["game"] != "sudoku":
+                return {"ok": False, "error": "Select Sudoku first."}
+            error, extra = sudoku.act(state["sudoku"], state["players"], pid, action, data)
+            broadcast()
+            return {"ok": not bool(error), **extra, **({"error": error} if error else {})}
+
         if isinstance(action, str) and action.startswith("scat"):
             return do_scat(pid, action, data)
 
@@ -3520,12 +3547,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file("host.html", "text/html; charset=utf-8")
         elif path in ("/play", "/play/", "/host/play", "/host/play/"):
             self._send_file("controller.html", "text/html; charset=utf-8")
+        elif path in ("/sudoku", "/sudoku/"):
+            self._send_file("sudoku-home.html", "text/html; charset=utf-8")
         elif path == "/theme.css":
             self._send_file("theme.css", "text/css; charset=utf-8")
         elif path == "/phone-host.js":
             self._send_file("phone-host.js", "text/javascript; charset=utf-8")
         elif path == "/bs.js":
             self._send_file("bs.js", "text/javascript; charset=utf-8")
+        elif path == "/sudoku.js":
+            self._send_file("sudoku.js", "text/javascript; charset=utf-8")
         elif path == "/results.js":
             self._send_file("results.js", "text/javascript; charset=utf-8")
         elif path == "/games":
@@ -3614,6 +3645,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "not_joined"}, 403)
             else:
                 self._send_json(do_input(data, host))
+        elif path.startswith("/sd/"):
+            self._send_json(self._sudoku_tables(path[4:], data))
         elif path == "/select":
             if not self._is_host():
                 self._send_json({"ok": False, "error": "not_host"}, 403)
@@ -3621,6 +3654,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(do_select(data.get("game")))
         else:
             self.send_error(404)
+
+    def _sudoku_tables(self, route, data):
+        """Open Sudoku page API. Auth is the visitor's mid + token."""
+        mid, tok = data.get("mid"), data.get("token")
+        if route == "hello":
+            return TABLES.hello(data.get("name"), self._client_ip(), mid, tok)
+        if route == "tables":
+            return TABLES.listing(mid, tok)
+        if route == "create":
+            return TABLES.create(mid, tok, data.get("mode"), data.get("difficulty"),
+                                 data.get("name"), data.get("listed", True), data.get("start", False))
+        if route == "enter":
+            return TABLES.enter(mid, tok, data.get("tid"))
+        if route == "leave":
+            return TABLES.leave(mid, tok)
+        if route == "input":
+            return TABLES.act(mid, tok, data.get("tid"), data)
+        if route == "state":
+            return TABLES.state(mid, tok, data.get("tid"))
+        return {"ok": False, "error": "unknown"}
 
     # -- server-sent events stream to a host display --
     def _stream_events(self):

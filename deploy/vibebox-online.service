@@ -1,0 +1,25 @@
+# Starts VibeBox in ONLINE (public) mode at boot and pushes the link to the
+# NOTIFY_WEBHOOK ntfy topic in .env. Install:
+#
+#   cp deploy/vibebox-online.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now vibebox-online
+#   sudo loginctl enable-linger $USER      # so it starts at boot, before login
+#
+# Logs / current link:  journalctl --user -u vibebox-online -o cat
+
+[Unit]
+Description=VibeBox game server — online mode at boot (link sent to ntfy)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=%h/VibeBox
+ExecStart=%h/VibeBox/start-online.sh
+Restart=on-failure
+RestartSec=20
+
+[Install]
+WantedBy=default.target

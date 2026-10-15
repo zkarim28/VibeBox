@@ -127,7 +127,9 @@ def _send_webhook(url, text, click=None, play=None):
     if click:
         headers["Click"] = click
     if click and play:
-        headers["Actions"] = f"view, Host and play, {click}; view, Join game, {play}"
+        base = play.rsplit("/", 1)[0]
+        headers["Actions"] = (f"view, Host and play, {click}; view, Join game, {play}; "
+                              f"view, Sudoku, {base}/sudoku")
     if _env("NOTIFY_TOKEN"):
         headers["Authorization"] = "Bearer " + _env("NOTIFY_TOKEN")
     req = urllib.request.Request(url, data=text.encode("utf-8"), headers=headers)
@@ -161,7 +163,8 @@ def _push_message(links):
     computer = links.get("source") or socket.gethostname()
     text = (f"VibeBox is ready on {computer}.\n{mode}\n\n"
             f"Host & play (host password required):\n{host}\n\n"
-            f"Players join:\n{play}\n\nRoom code: {code}")
+            f"Players join:\n{play}\n\nRoom code: {code}\n\n"
+            f"Sudoku, open to anyone (no password):\n{url}/sudoku")
     return text, host, play
 
 

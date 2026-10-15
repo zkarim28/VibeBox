@@ -1047,6 +1047,7 @@
 
   <!-- ============ LUDO ============ -->
   <div id="view-bs" class="bs-view" hidden></div>
+  <div id="view-sudoku" class="sd-view" hidden></div>
   <div id="view-ludo" hidden>
     <h1>Ludo<span></span></h1>
     <div class="lu-wrap">
@@ -1097,6 +1098,7 @@
   <div class="tb-flash" id="tb-flash"></div>
 
 <script src="/bs.js"></script>
+<script src="/sudoku.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -1201,7 +1203,7 @@ let lastState = null;
 function render(s) {
   lastState = s;
   renderRoster(s);
-  if (!leaving && !["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs"].includes(s.game)) {
+  if (!leaving && !["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs", "sudoku"].includes(s.game)) {
     location.href = "/"; return;
   }
   $("view-scat").hidden = s.game !== "scattergories";
@@ -1213,6 +1215,8 @@ function render(s) {
   $("view-mafia").hidden = s.game !== "mafia";
   $("view-bs").hidden = s.game !== "bs";
   if (s.game === "bs") BSView.render($("view-bs"), s, null, async (action, extra) => { const r = await post({action, ...extra}); return r?.json(); }, true);
+  $("view-sudoku").hidden = s.game !== "sudoku";
+  if (s.game === "sudoku") SudokuView.render($("view-sudoku"), s, null, async (action, extra) => { const r = await post({action, ...extra}); return r?.json(); }, true);
   $("view-ludo").hidden = s.game !== "ludo";
   $("view-wordhunt").hidden = s.game !== "word-hunt";
   if (s.game === "scattergories") renderScat(s);

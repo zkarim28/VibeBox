@@ -9,7 +9,7 @@ or use a **laptop/TV** as a shared display. Join over local WiFi or a public lin
 
 Currently playable: **Scattergories**, **Taboo**, **BlackBox**,
 **Codenames**, **Wii Sandbox**, **Imposter**, **Mafia**, **Ludo**,
-**Word Hunt**, and **BS**. More games are stubbed on the menu as "Coming soon".
+**Word Hunt**, **BS**, and **Sudoku**. More games are stubbed on the menu as "Coming soon".
 
 No dependencies — just Python 3 (stdlib only).
 
@@ -45,6 +45,7 @@ Phone-only game adaptations:
 - **Target Practice:** the Wii Sandbox becomes a touch-target race in phone
   mode. Motion activities remain available in shared-screen mode.
 - **Word Hunt:** the server ends the timer without relying on any host display.
+- **Sudoku:** every board is on the phones; the shared display is optional.
 - **Scattergories, BlackBox, and Ludo:** boards, answers, judging, results, and
   round controls are available on phones.
 
@@ -472,6 +473,73 @@ What's still true:
   actively playing, and don't treat this as hardened infrastructure.
 - `HOST_TOKEN` regenerates every run unless you set it — so does the room code
   unless you set `ROOM_CODE`.
+
+## Sudoku
+
+For **1–20 players**, each on their own phone. The host picks a mode and one of
+five difficulties (Easy, Medium, Advanced, Hard, Expert).
+
+- **Competitive:** everyone races the same board. Wrong digits are rejected
+  and add a **30-second penalty**; the fastest adjusted time wins and earns
+  100 points per player beaten (plus 100). The round ends when everyone still
+  in the room has finished, or when the host ends it. Late arrivals watch.
+- **Co-op:** one shared board. Each correct digit is underlined in the
+  colour of whoever placed it; wrong guesses count as team mistakes. Late
+  arrivals can tap **Join in and help**.
+- **Zen:** no clock, no ranking, nothing checked until the board is full
+  (repeated digits are highlighted). Each player picks their own difficulty
+  and can start a new board whenever they like.
+
+**Open Sudoku page — `/sudoku`.** Anyone with the server's link can play
+Sudoku at `https://<your-link>/sudoku` with **no host password and no room
+code**, just a name. It runs alongside the party room on the same server,
+whatever game the room is on:
+
+- **Play solo**: pick Zen or Time trial and a difficulty, and you're in.
+- **Start a table**: choose mode and difficulty, share the invite link
+  (`/sudoku?t=<table>`), and start rounds when everyone's there. Whoever
+  opened the table controls it; if they leave, the next person takes over.
+  Tables can be listed under "Open tables" or kept unlisted.
+- People who arrive mid-round can **👀 Watch** any player: the solution is
+  ghosted faintly behind the board. Spectating a co-op board means you can't
+  join that board afterwards.
+- Every table (and the party-room game) has a **💬 chat**. Messages from
+  anyone who can see the solution (spectators, or racers who already
+  finished) stay hidden from players still solving until the round ends.
+- The startup ntfy push includes the `/sudoku` link, and the phone join
+  screen links to it ("No room code? Play Sudoku →").
+
+**💡 Hints** point at the next cell that can be worked out logically and say
+why ("Box 3 has only one spot left for a 1"), then offer to fill it in. In
+Zen a hint flags a wrong digit first. Competitive adds 45 seconds per hint,
+co-op counts them for the team, Zen is free. Hints are logged in the history.
+
+Tap a cell, then a number. **✎ Notes** pencils in candidates (kept on your
+phone, and cleared automatically when a digit is placed nearby). Keyboards
+work too: arrows, 1–9, Backspace, N for notes.
+
+**Where the boards come from.** Puzzles are generated locally by
+`sudoku_puzzles.py`, not scraped or copied from books. Every board has exactly
+one solution, and its level is the hardest technique a person needs to solve
+it: Easy and Medium need only singles (Easy has 36+ clues), Advanced adds
+pointing/claiming, Hard adds pairs and triples, and Expert adds X-wings,
+swordfish and XY-wings. The graded bank (`sudoku_puzzles.json`, 150 per level)
+is committed. Each time a board is dealt it is randomly relabelled and
+reshuffled (rows within bands, bands, columns, transpose), so even a repeat
+looks new. Grow the bank any time:
+
+    python3 sudoku_puzzles.py --per-level 300
+    python3 sudoku_puzzles.py --stats
+
+**Who played what.** Every play is appended to `sudoku_history.json` (git
+ignored; set `SUDOKU_HISTORY` to move it): board, level, mode, player name,
+result, time and mistakes. A new round deals a board **nobody in the room has
+played**, and the lobby shows how many unplayed boards remain at each level.
+If a group has played everything at a level, it reuses the board they played
+longest ago, reshuffled. The shared screen lists recent plays; for the full
+log:
+
+    python3 sudoku.py --history
 
 ## BS (Bullshit / Cheat)
 

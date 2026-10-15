@@ -39,6 +39,9 @@ globalThis.PhoneHost = (() => {
   function toggle(label, action, key, value) {
     return `<label class="ph-toggle"><input type="checkbox" data-toggle="${action}" data-key="${key}"${value ? ' checked' : ''}>${esc(label)}</label>`;
   }
+  function choice(label, action, key, value, options) {
+    return `<form class="ph-setting" data-setting="${action}" data-key="${key}"><label>${esc(label)}<select name="value">${Object.entries(options).map(([v, t]) => `<option value="${esc(v)}"${v === value ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label><button>Save</button></form>`;
+  }
   function textSetting(label, key, value) {
     return `<form class="ph-setting" data-setting="tabooSet" data-key="${key}"><label>${label}<input name="value" value="${esc(value)}" maxlength="16" required></label><button>Save</button></form>`;
   }
@@ -59,6 +62,7 @@ globalThis.PhoneHost = (() => {
       case 'word-hunt': return number('Round length (seconds)', 'whSet', 'seconds', g.seconds, 30, 300);
       case 'wii-sandbox': return '<p>Phone mode uses touch Target Practice. Everyone races to tap their own six targets; no motion sensors or shared display needed.</p>';
       case 'bs': return g.phase === 'lobby' ? number('Decks (1 or 2)', 'bsSet', 'decks', g.decks, 1, 2) : '<p>Finish the deal to change decks.</p>';
+      case 'sudoku': return choice('Mode', 'sdSet', 'mode', g.mode, {competitive:'Competitive', coop:'Co-op', zen:'Zen'}) + choice('Difficulty', 'sdSet', 'difficulty', g.difficulty, {easy:'Easy', medium:'Medium', advanced:'Advanced', hard:'Hard', expert:'Expert'}) + (g.bank ? `<p>${g.bank[g.difficulty].fresh} of ${g.bank[g.difficulty].total} boards at this level are new to everyone here.</p>` : '');
       case 'ludo': return '<p>The first four players get seats. Everyone sees the board on their phone.</p>';
       default: return '<p>Choose a game to configure it.</p>';
     }
@@ -122,6 +126,11 @@ globalThis.PhoneHost = (() => {
       case 'bs':
         if (['lobby','gameover'].includes(ph)) out += button('bsStart','Deal & start');
         if (ph !== 'lobby') out += button('bsLobby','Return to lobby',{},true);
+        break;
+      case 'sudoku':
+        if (['lobby','done'].includes(ph)) out += button('sdStart', ph === 'done' ? 'Play again' : 'Start');
+        if (ph === 'playing') out += button('sdEnd', g.mode === 'zen' ? 'End Zen session' : 'End round', {}, true);
+        if (ph === 'done') out += button('sdLobby', 'Change mode / difficulty');
         break;
       case 'ludo':
         if (ph === 'lobby') out += button('ludoStart','Start game');

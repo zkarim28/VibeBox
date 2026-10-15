@@ -25,6 +25,8 @@
   h1 span { color: #b7a4ff; }
 
   .join { margin: auto; width: 100%; max-width: 360px; text-align: center; }
+  .join-alt { margin-top: 1.1rem; font-size: .95rem; }
+  .join-alt a { color: #b7a4ff; }
   .join input {
     width: 100%; font-size: 1.25rem; padding: 0.9rem 1rem; border-radius: 0.8rem;
     border: 1px solid #49415f; background: #1c1930; color: #f0edf9; text-align: center;
@@ -562,6 +564,7 @@
            maxlength="6" enterkeyhint="go" style="letter-spacing:0.25em;text-transform:uppercase">
     <button id="join-btn">Join game</button>
     <div class="err" id="err"></div>
+    <p class="join-alt"><a href="/sudoku">No room code? Play Sudoku →</a></p>
   </div>
 
   <div id="waiting" hidden>
@@ -909,6 +912,7 @@
 
   <!-- ===== LUDO ===== -->
   <div id="bs" class="bs-view" hidden></div>
+  <div id="sudoku" class="sd-view" hidden></div>
   <div id="ludo" hidden>
     <div class="lu-you" id="lu-you"></div>
     <div class="lu-status" id="lu-status"></div>
@@ -1015,6 +1019,7 @@
 <script src="/phone-host.js"></script>
 <script src="/results.js"></script>
 <script src="/bs.js"></script>
+<script src="/sudoku.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -1187,9 +1192,10 @@ function setView(game) {
   $("imposter").hidden = game !== "imposter";
   $("mafia").hidden = game !== "mafia";
   $("bs").hidden = game !== "bs";
+  $("sudoku").hidden = game !== "sudoku";
   $("ludo").hidden = game !== "ludo";
   $("wordhunt").hidden = game !== "word-hunt";
-  $("waiting").hidden = ["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs"].includes(game);
+  $("waiting").hidden = ["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs", "sudoku"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
   if (game === "wii-sandbox" && !phoneOnly) wiiEnsureLoop();
   else wiiMaybeGoHome(game);   // left Wii on the https twin? go back to :8000
@@ -2324,6 +2330,7 @@ async function pollState() {
       renderWordHunt(s);
     }
     if (s.game === "bs") BSView.render($("bs"), s, pid, send);
+    if (s.game === "sudoku") SudokuView.render($("sudoku"), s, pid, send);
     renderPhoneResults(s);
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -2332,6 +2339,7 @@ async function pollState() {
 }
 function s_poll_delay() {
   if (currentGame === "bs") return 350;
+  if (currentGame === "sudoku") return 400;
   if (currentGame === "scattergories" && scPhase === "review") return 700;
   if (currentGame === "taboo" && (tbPhase === "turn" || tbPhase === "ready")) return 350;
   if (currentGame === "blackbox" && bbPhase === "judge") return 350;

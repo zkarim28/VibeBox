@@ -2,3 +2,5 @@
 __pycache__/
 .certs/
 .env
+sudoku_history.json
+sudoku_history.json.tmp

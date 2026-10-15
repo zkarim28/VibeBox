@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VibeBox Sudoku</title>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; overflow-x: hidden; overflow-x: clip; }
+  body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  [hidden] { display: none !important; }
+  .wrap { width: min(100%, 720px); margin: 0 auto; padding: 1.25rem 1rem 3rem; display: flex; flex-direction: column; gap: 1.1rem; }
+  .brand { font-size: 1rem; font-weight: 800; letter-spacing: -.02em; margin: 0; }
+  .brand span { color: var(--accent); }
+  h1 { font-size: clamp(2.2rem, 9vw, 3.4rem); line-height: 1.05; margin: .2rem 0 0; }
+  .lede { color: var(--muted); margin: .4rem 0 0; line-height: 1.5; }
+  .card { border: 1px solid var(--line); border-radius: 1.1rem; background: var(--panel); padding: 1rem; display: grid; gap: .75rem; }
+  .card h2 { margin: 0; font-size: 1.15rem; }
+  .card p { margin: 0; color: var(--muted); line-height: 1.45; }
+  .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; }
+  label { display: grid; gap: .3rem; color: var(--muted); font-size: .85rem; }
+  label.check { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--text); }
+  input[type="text"], select { min-height: 46px; border-radius: .7rem; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 0 .75rem; font: inherit; }
+  input[type="text"] { width: 100%; }
+  .btn { min-height: 46px; border: 1px solid var(--line); border-radius: .75rem; background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 800; padding: 0 1.1rem; }
+  .btn.ghost { background: var(--panel-2); color: var(--text); }
+  .err { color: #fda4af; min-height: 1.2em; margin: 0; }
+  .err:empty { display: none; }
+  .tables { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+  .tables li { display: grid; grid-template-columns: 1fr auto; gap: .2rem .75rem; align-items: center; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: .8rem; background: var(--panel-2); }
+  .tables li span { color: var(--muted); font-size: .85rem; }
+  .tables li .btn { grid-row: span 2; }
+  .tables:empty::before { content: "No open tables yet — start one!"; color: var(--muted); }
+  .tbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; justify-content: space-between; }
+  .tbar h2 { margin: 0; font-size: 1.1rem; }
+  .tbar .acts { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .tbar .btn { min-height: 38px; font-size: .85rem; padding: 0 .8rem; }
+  .people { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .people span { padding: .2rem .55rem; border-radius: 999px; border: 1px solid var(--line); font-size: .8rem; color: var(--muted); }
+  .people b { font-weight: 700; }
+  .who { display: flex; justify-content: space-between; align-items: center; gap: .5rem; color: var(--muted); }
+  .who button { background: none; border: 0; color: var(--accent); font: inherit; text-decoration: underline; padding: .3rem; }
+  .small { font-size: .85rem; color: var(--muted); }
+  .at-table header { display: none; }
+</style>
+</head>
+<body class="page-sudoku-home">
+<main class="wrap">
+  <header>
+    <p class="brand">Vibe<span>Box</span></p>
+    <h1>🔢 Sudoku</h1>
+    <p class="lede">Play on your own, race friends, or solve one board together. No sign-up — just a name.</p>
+  </header>
+
+  <!-- 1. pick a name -->
+  <section id="s-name" class="card" hidden>
+    <h2>What should we call you?</h2>
+    <form id="name-form" class="row">
+      <label style="flex:1 1 200px">Your name<input id="name" type="text" maxlength="20" autocomplete="nickname" autocapitalize="words" required></label>
+      <button class="btn">Let's go</button>
+    </form>
+    <p class="err" id="name-err" role="alert"></p>
+  </section>
+
+  <!-- 2. lobby -->
+  <section id="s-lobby" hidden>
+    <div class="who"><span>Playing as <b id="me-name"></b></span><button type="button" id="rename">Change name</button></div>
+    <p class="err" id="lobby-err" role="alert"></p>
+    <div class="card">
+      <h2>Play solo</h2>
+      <p>Jump straight into a board. Friends can still drop in with your invite link to chat or spectate.</p>
+      <div class="row">
+        <label>Mode<select id="solo-mode"><option value="zen">Zen (no clock)</option><option value="competitive">Time trial</option></select></label>
+        <label>Difficulty<select id="solo-level"></select></label>
+        <button class="btn" type="button" id="solo-go">Play now</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>Start a table</h2>
+      <p>Pick the rules, share the link, and start when everyone's in. You control the rounds.</p>
+      <div class="row">
+        <label style="flex:1 1 180px">Table name<input id="t-name" type="text" maxlength="32" placeholder="optional"></label>
+        <label>Mode<select id="t-mode"><option value="competitive">Competitive</option><option value="coop">Co-op</option><option value="zen">Zen</option></select></label>
+        <label>Difficulty<select id="t-level"></select></label>
+      </div>
+      <div class="row" style="justify-content:space-between">
+        <label class="check"><input type="checkbox" id="t-listed" checked> List it under open tables</label>
+        <button class="btn" type="button" id="t-go">Open table</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>Open tables</h2>
+      <ul class="tables" id="tables"></ul>
+    </div>
+  </section>
+
+  <!-- 3. at a table -->
+  <section id="s-table" hidden>
+    <div class="tbar">
+      <h2 id="t-title"></h2>
+      <div class="acts">
+        <button class="btn ghost" type="button" id="invite">Copy invite link</button>
+        <button class="btn ghost" type="button" id="leave">Leave table</button>
+      </div>
+    </div>
+    <div class="people" id="people" aria-label="People at this table"></div>
+    <label class="check" id="listed-wrap" hidden><input type="checkbox" id="listed"> Show this table in the open list</label>
+    <p class="err" id="table-err" role="alert"></p>
+    <div id="board" class="sd-view"></div>
+  </section>
+</main>
+<script src="/sudoku.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const LEVELS = {easy:'Easy', medium:'Medium', advanced:'Advanced', hard:'Hard', expert:'Expert'};
+const MODES = {competitive:'Competitive', coop:'Co-op', zen:'Zen'};
+let me = null, tid = null, pollTimer = null, listTimer = null;
+
+function load() { try { return JSON.parse(localStorage.getItem('sd-home') || 'null'); } catch { return null; } }
+function save() { try { localStorage.setItem('sd-home', JSON.stringify(me)); } catch {} }
+async function api(route, body = {}) {
+  try {
+    const r = await fetch('/sd/' + route, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({...(me ? {mid: me.mid, token: me.token} : {}), ...body})});
+    return await r.json();
+  } catch { return {ok: false, error: 'Connection lost. Check your internet and try again.'}; }
+}
+function show(which) {
+  for (const s of ['name', 'lobby', 'table']) $('s-' + s).hidden = s !== which;
+  document.body.classList.toggle('at-table', which === 'table');
+  clearTimeout(pollTimer); clearInterval(listTimer);
+  if (which === 'lobby') { refreshTables(); listTimer = setInterval(refreshTables, 3000); }
+  if (which === 'table') poll();
+}
+function setUrl(t) {
+  const u = new URL(location.href);
+  if (t) u.searchParams.set('t', t); else u.searchParams.delete('t');
+  history.replaceState(null, '', u.pathname + u.search);
+}
+
+async function hello(name) {
+  let r = await api('hello', {name});
+  if (r.ok === false && me) { me = null; r = await api('hello', {name}); }   // server restarted: fresh id
+  if (!r.ok) return r;
+  me = {mid: r.mid, token: r.token, name: r.name}; save();
+  $('me-name').textContent = me.name;
+  return r;
+}
+
+async function refreshTables() {
+  const r = await api('tables');
+  if (r.error === 'who') { await hello(me.name); return; }
+  if (!r.ok) return;
+  const html = r.tables.map(t => `<li><b>${esc(t.name)}</b><button class="btn" type="button" data-join="${esc(t.id)}">${t.phase === 'playing' ? 'Join / watch' : 'Join'}</button>
+    <span>${MODES[t.mode]} · ${LEVELS[t.difficulty]} · ${t.people} here · ${t.phase === 'playing' ? `round in progress (${t.playing} playing)` : t.phase === 'done' ? 'between rounds' : 'waiting to start'}</span></li>`).join('');
+  if ($('tables').innerHTML !== html) $('tables').innerHTML = html;
+}
+
+async function enter(id) {
+  const r = await api('enter', {tid: id});
+  if (!r.ok) { $('lobby-err').textContent = r.error === 'who' ? 'Please try again.' : r.error; setUrl(null); show('lobby'); return; }
+  tid = id; setUrl(id); $('table-err').textContent = ''; show('table');
+}
+
+async function create(mode, difficulty, opts) {
+  $('lobby-err').textContent = '';
+  const r = await api('create', {mode, difficulty, ...opts});
+  if (!r.ok) { $('lobby-err').textContent = r.error; return; }
+  tid = r.tid; setUrl(tid); show('table');
+}
+
+const send = (action, extra) => api('input', {tid, action, ...(extra || {})});
+
+async function poll() {
+  if (!tid) return;
+  const r = await api('state', {tid});
+  if (!r.ok) {
+    if (r.error === 'who') { await hello(me.name); const again = await api('enter', {tid}); if (again.ok) return void (pollTimer = setTimeout(poll, 300)); }
+    if (r.error === 'gone' || r.error === 'who') { tid = null; setUrl(null); show('lobby'); $('lobby-err').textContent = 'That table has closed.'; return; }
+    $('table-err').textContent = r.error || 'Connection lost — retrying…';
+    pollTimer = setTimeout(poll, 1500); return;
+  }
+  $('table-err').textContent = '';
+  const t = r.table;
+  $('t-title').textContent = t.name;
+  const people = t.people.map(p => `<span><b style="color:${esc(p.color)}">●</b> ${esc(p.name)}${p.mid === t.you ? ' (you)' : ''}${p.owner ? ' · owner' : ''}${!p.seated && r.sudoku.phase === 'playing' ? ' · watching' : ''}</span>`).join('');
+  if ($('people').innerHTML !== people) $('people').innerHTML = people;
+  $('listed-wrap').hidden = !t.isOwner;
+  if (document.activeElement !== $('listed')) $('listed').checked = t.listed;
+  SudokuView.render($('board'), {sudoku: r.sudoku}, t.you, send, false, {controls: t.isOwner});
+  pollTimer = setTimeout(poll, 450);
+}
+
+for (const sel of ['solo-level', 't-level'])
+  $(sel).innerHTML = Object.entries(LEVELS).map(([k, v]) => `<option value="${k}"${k === 'medium' ? ' selected' : ''}>${v}</option>`).join('');
+
+$('name-form').onsubmit = async e => {
+  e.preventDefault();
+  const r = await hello($('name').value);
+  if (!r.ok) { $('name-err').textContent = r.error; return; }
+  $('name-err').textContent = '';
+  const want = new URLSearchParams(location.search).get('t');
+  if (tid) show('table'); else if (want) enter(want); else show('lobby');
+};
+$('rename').onclick = () => { $('name').value = me ? me.name : ''; show('name'); $('name').focus(); };
+$('solo-go').onclick = () => create($('solo-mode').value, $('solo-level').value, {start: true, listed: false, name: `${me.name}'s solo board`});
+$('t-go').onclick = () => create($('t-mode').value, $('t-level').value, {name: $('t-name').value, listed: $('t-listed').checked});
+$('tables').onclick = e => { const b = e.target.closest('[data-join]'); if (b) enter(b.dataset.join); };
+$('leave').onclick = async () => { clearTimeout(pollTimer); await api('leave'); tid = null; setUrl(null); show('lobby'); };
+$('listed').onchange = () => send('sdListed', {value: $('listed').checked});
+$('invite').onclick = async () => {
+  const link = location.origin + '/sudoku?t=' + tid;
+  try { await navigator.clipboard.writeText(link); $('invite').textContent = 'Copied!'; setTimeout(() => $('invite').textContent = 'Copy invite link', 1600); }
+  catch { prompt('Copy this invite link:', link); }
+};
+
+(async () => {
+  me = load();
+  const want = new URLSearchParams(location.search).get('t');
+  if (!me) { show('name'); $('name').focus(); return; }
+  const r = await hello(me.name);
+  if (!r.ok) { show('name'); return; }
+  if (want) enter(want); else show('lobby');
+})();
+</script>
+</body>
+</html>
