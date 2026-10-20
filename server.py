@@ -40,6 +40,7 @@ import bs
 import wordhunt       # local, Word Hunt board generator + dictionary
 import sudoku         # local, Sudoku engine + puzzle bank + play history
 import sudoku_tables  # local, open Sudoku tables for the public /sudoku page
+import minigolf       # local, 2D mini golf: course generator, physics, rules
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8000"))
@@ -101,7 +102,8 @@ _join_hits = {}             # ip -> [timestamps]
 # Actions only the host screen may trigger.
 HOST_ONLY = {
     "bsStart", "bsLobby", "bsSet",
-    "sdSet", "sdStart", "sdEnd", "sdLobby",
+    "sdSet", "sdStart", "sdEnd", "sdLobby", "sdPause",
+    "mgSet", "mgRandomObs", "mgShuffle", "mgStart", "mgNext", "mgSkip", "mgEnd", "mgLobby",
     "kick", "hostMode",
     "scatStart", "scatSet", "scatEndRound", "scatNext", "scatLobby", "scatResetScores",
     "tabooStart", "tabooSet", "tabooBeginTurn", "tabooEndTurn", "tabooNextTurn",
@@ -199,6 +201,14 @@ GAMES = [
         "players": "1-20 players",
         "status": "ready",
         "emoji": "\N{INPUT SYMBOL FOR NUMBERS}",
+    },
+    {
+        "id": "minigolf",
+        "name": "Mini Golf",
+        "tagline": "Pirate-cove putt-putt, solo or in teams. Windmills, sharks, portals and a kraken.",
+        "players": "1-16 players",
+        "status": "ready",
+        "emoji": "\N{FLAG IN HOLE}",
     },
     {
         "id": "doodle-dash",
@@ -622,6 +632,7 @@ state = {
     "wordhunt": fresh_wordhunt(),
     "bs": bs.fresh(),
     "sudoku": sudoku.fresh(),
+    "minigolf": minigolf.fresh(),
 }
 _next_pid = [1]
 # pids the host has kicked — their controller's next /state poll gets
@@ -1251,6 +1262,7 @@ def public_state(for_pid=None):
     return {
         "bs": bs.public(state["bs"], state["players"], for_pid) if state["game"] == "bs" else None,
         "sudoku": sudoku.public(state["sudoku"], state["players"], for_pid) if state["game"] == "sudoku" else None,
+        "minigolf": minigolf.public(state["minigolf"], state["players"], for_pid) if state["game"] == "minigolf" else None,
         "game": state["game"],
         "phoneMode": state["phoneMode"],
         "players": players,
@@ -1384,6 +1396,8 @@ def janitor():
                     changed = True
             if state["game"] == "sudoku" and sudoku.tick(state["sudoku"], state["players"]):
                 changed = True
+            if state["game"] == "minigolf" and minigolf.tick(state["minigolf"], state["players"]):
+                changed = True
             # end a Scattergories round when its timer runs out
             scat = state["scat"]
             if (state["game"] == "scattergories" and scat["phase"] == "playing"
@@ -1485,6 +1499,7 @@ def do_select(game):
         state["game"] = game
         state["bs"] = bs.fresh(state["bs"]["decks"])
         sudoku.act(state["sudoku"], state["players"], None, "sdLobby", {})   # records any open round
+        minigolf.act(state["minigolf"], state["players"], None, "mgLobby", {})   # keeps settings and teams
         # keep the chosen game's settings, drop any in-progress round
         keep = state["scat"]
         state["scat"] = fresh_scat()
@@ -3389,6 +3404,13 @@ def do_input(data, is_host=False):
             broadcast()
             return {"ok": not bool(error), **({"error": error} if error else {})}
 
+        if isinstance(action, str) and action.startswith("mg"):
+            if state["game"] != "minigolf":
+                return {"ok": False, "error": "Select Mini Golf first."}
+            error, extra = minigolf.act(state["minigolf"], state["players"], pid, action, data)
+            broadcast()
+            return {"ok": not bool(error), **extra, **({"error": error} if error else {})}
+
         if isinstance(action, str) and action.startswith("sd"):
             if state["game"] != "sudoku":
                 return {"ok": False, "error": "Select Sudoku first."}
@@ -3557,6 +3579,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file("bs.js", "text/javascript; charset=utf-8")
         elif path == "/sudoku.js":
             self._send_file("sudoku.js", "text/javascript; charset=utf-8")
+        elif path == "/minigolf.js":
+            self._send_file("minigolf.js", "text/javascript; charset=utf-8")
         elif path == "/results.js":
             self._send_file("results.js", "text/javascript; charset=utf-8")
         elif path == "/games":
@@ -3664,7 +3688,8 @@ class Handler(BaseHTTPRequestHandler):
             return TABLES.listing(mid, tok)
         if route == "create":
             return TABLES.create(mid, tok, data.get("mode"), data.get("difficulty"),
-                                 data.get("name"), data.get("listed", True), data.get("start", False))
+                                 data.get("name"), data.get("listed", True), data.get("start", False),
+                                 data.get("boards", "same"), data.get("lives", 0))
         if route == "enter":
             return TABLES.enter(mid, tok, data.get("tid"))
         if route == "leave":

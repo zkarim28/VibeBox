@@ -74,7 +74,7 @@ class EngineTests(TempHistory):
             if ch == "0":
                 for _ in range(wrong):
                     bad = str(int(sol[i]) % 9 + 1)
-                    self.assertEqual(self.act(pid, "sdPlace", i=i, d=int(bad))[1], {"correct": False})
+                    self.assertIs(self.act(pid, "sdPlace", i=i, d=int(bad))[1]["correct"], False)
                     wrong = 0
                 self.act(pid, "sdPlace", i=i, d=int(sol[i]))
 
@@ -136,6 +136,64 @@ class EngineTests(TempHistory):
         self.assertEqual(self.act(4, "sdPlace", i=0, d=1)[0], "You're watching this round.")
         self.act(4, "sdJoin")
         self.assertIn(4, self.g["players"])
+
+    def test_each_player_gets_own_board(self):
+        self.assertIsNone(self.act(None, "sdSet", key="boards", value="each")[0])
+        self.start("competitive")
+        ids = {self.g["players"][p]["board"]["puzzle"] for p in (1, 2, 3)}
+        self.assertEqual(len(ids), 3)
+        seat = self.g["players"][2]
+        self.solve_for(2, seat["board"])
+        self.assertTrue(seat["finishedAt"])
+        self.act(None, "sdEnd")
+        rows = {r["player"]: r for r in sudoku.load_history()}
+        self.assertEqual(rows["P2"]["board"], seat["board"]["id"])
+        self.assertEqual(rows["P2"]["result"], "solved")
+        self.assertEqual(self.g["boards"], "each")      # setting survives the round
+
+    def test_three_lives_knocks_racer_out(self):
+        self.assertIsNone(self.act(None, "sdSet", key="lives", value="3")[0])
+        self.start("competitive")
+        board = self.g["board"]
+        i = board["puzzle"].index("0")
+        bad = int(board["solution"][i]) % 9 + 1
+        for n in range(3):
+            err, extra = self.act(1, "sdPlace", i=i, d=bad)
+        self.assertTrue(extra["out"])
+        seat = self.g["players"][1]
+        self.assertTrue(seat["out"])
+        self.assertIsNotNone(sudoku._cant_watch(self.g, 1, 1))
+        self.assertIsNone(sudoku._cant_watch(self.g, 1, 2))     # out players may spectate
+        self.solve_for(2, board)
+        self.solve_for(3, board)
+        self.assertEqual(self.g["phase"], "done")
+        self.assertNotIn("place", seat)
+        self.assertEqual({r["player"]: r["result"] for r in sudoku.load_history()}["P1"], "out")
+
+    def test_three_lives_coop_team_loses(self):
+        self.act(None, "sdSet", key="lives", value=3)
+        self.start("coop")
+        board = self.g["board"]
+        i = board["puzzle"].index("0")
+        bad = int(board["solution"][i]) % 9 + 1
+        for pid in (1, 2, 3):
+            self.act(pid, "sdPlace", i=i, d=bad)
+        self.assertEqual(self.g["phase"], "done")
+        self.assertTrue(all(r["result"] == "out" for r in sudoku.load_history()))
+
+    def test_pause_freezes_clock_and_hides_board(self):
+        self.start("competitive")
+        self.assertIsNone(self.act(None, "sdPause", value=True)[0])
+        pub = sudoku.public(self.g, self.players, 1)
+        self.assertTrue(pub["paused"])
+        self.assertNotIn("puzzle", pub)
+        self.assertEqual(self.act(1, "sdPlace", i=0, d=1)[0], "The game is paused.")
+        start = self.g["startedAt"]
+        self.g["pausedAt"] -= 100                     # pretend the pause lasted 100 s
+        self.act(None, "sdPause", value=False)
+        self.assertAlmostEqual(self.g["startedAt"] - start, 100, delta=1)
+        self.assertEqual(self.g["pausedAt"], 0)
+        self.assertIn("puzzle", sudoku.public(self.g, self.players, 1))
 
     def test_zen_boards_are_personal_and_unchecked(self):
         self.start("zen", "medium")
@@ -312,6 +370,17 @@ class TableTests(TempHistory):
         self.assertEqual(sudoku.load_history()[0]["result"], "unfinished")       # Ana's race got logged
         self.call(self.b, "leave")
         self.assertEqual(self.T.tables, {})
+
+    def test_table_rules_and_owner_only_pause(self):
+        tid = self.call(self.a, "create", "competitive", "easy", boards="each", lives=3, start=True)["tid"]
+        self.assertTrue(self.call(self.b, "enter", tid)["ok"])
+        g = self.call(self.a, "state", tid)["sudoku"]
+        self.assertEqual((g["boards"], g["lives"]), ("each", 3))
+        self.assertEqual(self.call(self.b, "act", tid, {"action": "sdPause"})["error"], "Only the table owner can do that.")
+        self.assertTrue(self.call(self.a, "act", tid, {"action": "sdPause", "value": True})["ok"])
+        self.assertTrue(self.call(self.b, "state", tid)["sudoku"]["paused"])
+        self.assertTrue(self.call(self.a, "act", tid, {"action": "sdPause", "value": False})["ok"])
+        self.assertFalse(self.call(self.b, "state", tid)["sudoku"]["paused"])
 
     def test_tokens_are_checked(self):
         self.assertEqual(self.T.listing(self.a["mid"], "nope")["error"], "who")

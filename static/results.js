@@ -24,6 +24,12 @@ globalThis.VibeResults = (() => {
       return { title: s.blackbox.phase === 'gameover' ? 'Final standings' : 'Round standings', unit: 'Points',
         rows: ranked((s.blackbox.players || []).map(p => player(p, p.score, p.pid === s.blackbox.winnerPid ? 'Round winner' : ''))) };
     }
+    if (s.game === 'minigolf' && s.minigolf?.phase === 'done' && s.minigolf.standings?.length) {
+      const mg = s.minigolf, mine = (mg.sides || []).find(x => x.id === mg.me?.side);
+      return { title: 'Final scores (lowest wins)', unit: 'Strokes', rows: mg.standings.map(r => ({ name: r.name, rank: r.place, score: r.total,
+        detail: r.toPar === 0 ? 'Even par' : `${r.toPar > 0 ? '+' : ''}${r.toPar} to par`,
+        you: mine ? (r.side ? r.side === mine.id : r.team === mine.team) : false })) };
+    }
     if (s.game === 'word-hunt' && s.wordhunt?.phase === 'review') {
       return { title: 'Round leaderboard', unit: 'Points', rows: ranked((s.wordhunt.leaderboard || []).map(p =>
         player(p, p.roundScore, `${p.wordCount} ${p.wordCount === 1 ? 'word' : 'words'} · ${p.total} total`))) };

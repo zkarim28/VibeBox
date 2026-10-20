@@ -39,7 +39,8 @@ No dependencies: Python 3 stdlib on the server, plain HTML/JS/CSS on the pages
 |---|---|
 | `start-party-games.sh` | Interactive start. Loads `.env`, frees ports 8000/8443, runs `server.py`, which asks Local or Public (or opens the Tk window in `gui.py`). |
 | `start-online.sh` | Non-interactive start for boot. Forces `MODE=public GUI=0 NO_HTTPS=1`, waits up to 3 min for the internet, runs `server.py`. If the tunnel fails, the server would fall back to LAN-only. The script watches for that ("running LOCAL instead"), kills the server and exits 1 so systemd retries. |
-| `deploy/vibebox-online.service` | systemd user unit for `start-online.sh` (`Restart=on-failure`, 20 s back-off, no start limit). Installed copy: `~/.config/systemd/user/`. |
+| `deploy/vibebox-online.service` | systemd user unit for `start-online.sh` (`Restart=always`, 20 s back-off, no start limit). Installed copy: `~/.config/systemd/user/`. |
+| `deploy/vibebox-watchdog.{sh,service,timer}` | Every 2 min, checks `127.0.0.1:8000/sudoku` and the current tunnel link (read from this run's journal). 3 bad checks in a row (e.g. Cloudflare ERROR 1033, tunnel lost) → `systemctl --user restart vibebox-online`, which opens a new tunnel and pushes the new link to ntfy. Skips the first 4 min after a start and does nothing while the internet itself is down. Logs: `journalctl --user -u vibebox-watchdog -o cat`. |
 | `launcher.py` + `setup-launcher.sh` | Password-gated control panel on `127.0.0.1:8790`, exposed with `tailscale funnel`. Each "start" spawns `server.py` with `MODE=public`, a free port from 8000-8019, its own room code and host token. Tracks them in `~/.vibebox-launcher/servers.json`; logs in `~/.vibebox-launcher/logs/`. |
 | `gui.py` | Optional Tk control window for interactive local runs. |
 
@@ -182,7 +183,7 @@ every page ──GET /state?pid=N──► public_state(for_pid)
 | `static/controller.html` | Join form, then one container per game (`#scat`, `#bs`, `#sudoku`, …). `setView(game)` toggles them; `pollState()` (also the heartbeat) dispatches to the game's renderer; `s_poll_delay()` sets per-game poll speed (300-700 ms). `send(action, extra)` adds `pid` and `token`. |
 | `static/phone-host.js` | Only active on `/host/play`. Adds the "Host controls" tab: unlock gate, game picker, per-game **settings** (`settings()` uses the `number` / `toggle` / `choice` / `textSetting` helpers) and **buttons** (`controls()`), roster with kick. Settings forms post `{action, key, value}`. |
 | `static/results.js` | `VibeResults.fromState()`: shared leaderboard panel for phones. |
-| `static/bs.js`, `static/sudoku.js` | **Self-contained game views** (see §5). |
+| `static/bs.js`, `static/sudoku.js`, `static/minigolf.js` | **Self-contained game views** (see §5). |
 | `static/theme.css` | Shared look plus the newer games' styles (`.bs-*`, `.sd-*`). Older games keep their CSS inline in host/controller HTML. |
 
 ---
@@ -194,7 +195,7 @@ Imposter, Mafia, Ludo, Word Hunt): `fresh_x()`, `_x_public()`, `do_x()`
 live inside `server.py`; markup, CSS and JS live inside `host.html` and
 `controller.html`.
 
-**Newer, modular games** (BS, Sudoku): this is the pattern to copy.
+**Newer, modular games** (BS, Sudoku, Mini Golf): this is the pattern to copy.
 
 ```
 game.py               fresh() · act(g, players, pid, action, data) · public(g, players, pid) · tick/expire(g)
@@ -263,7 +264,7 @@ sudoku-home.html ──POST /sd/*──► Handler._sudoku_tables ──► TABL
 * A table's `players` dict is passed to the engine as its "room", so every
   engine rule (modes, hints, chat, spectating, history) is shared with the
   party room.
-* Owner-only actions: `TABLE_ONLY = {sdSet, sdStart, sdEnd, sdLobby}` (+
+* Owner-only actions: `TABLE_ONLY = {sdSet, sdStart, sdEnd, sdLobby, sdPause}` (+
   `sdListed`). Ownership passes to the next member when the owner leaves.
 * Cleanup is lazy (on requests): a member who stops polling for 60 s
   leaves; an empty table logs any open boards and is deleted. A page reload
@@ -273,6 +274,25 @@ sudoku-home.html ──POST /sd/*──► Handler._sudoku_tables ──► TABL
 * The page calls `SudokuView.render(el, {sudoku}, mid, send, false,
   {controls: isOwner})`. `controls` shows round controls on a phone; the 5th
   arg (`isHost`) still means "shared laptop/TV display".
+
+### Rules, pause (engine, both contexts)
+
+* `sdSet` keys: `mode`, `difficulty`, `boards` (`same`|`each`, competitive),
+  `lives` (`0`|`3`). `boards`/`lives` survive `_reset` like the chat does.
+* `boards=each`: `sdStart` deals per player (like Zen); everything already
+  reads `seat["board"] or g["board"]`, so ranking, hints, spectating and
+  history just work.
+* `lives=3`: a racer's 3rd wrong digit sets `seat["out"]` and `finishedAt`
+  (so `tick` treats them as done; they're not ranked and may spectate). Co-op:
+  `shared["out"]` ends the round. With lives on, mistakes cost no time.
+* `sdPause {value}` (host / owner): sets `pausedAt`; while set `public()` omits
+  every board/solution, and `sdPlace`/`sdHint`/`sdZenNew` are refused.
+  `_resume` shifts `startedAt` and every seat's `startedAt`/`finishedAt` by the
+  pause length, so durations never count it. `sdEnd`/`sdLobby` resume first.
+* Phone host panel (`phone-host.js`): settings save on `change` (no Save
+  button); actions queue instead of being dropped, only the tapped control is
+  marked busy, and the settings form isn't rebuilt while a save is in flight
+  or a field has focus.
 
 ### Hints, spectating, chat (engine, both contexts)
 
@@ -288,6 +308,36 @@ sudoku-home.html ──POST /sd/*──► Handler._sudoku_tables ──► TABL
   a race) are flagged `spoiler` and filtered out of `public()` for viewers
   still solving, until the round ends. Chat survives `_reset()` between
   rounds.
+
+## 6c. Mini golf specifics
+
+* `minigolf.py` (prefix `mg`, game id and state key both `minigolf`). Phases
+  `lobby → playing ⇄ hole → done`. Settings live in `g["cfg"]` and survive
+  `mgLobby`/`do_select`; teams in `g["teamOf"]`.
+* **Course:** 80×120 units, 8×12 grid of 10-unit cells. `_layout` carves a
+  fairway (straight/dogleg/zigzag/U/arena), `_walls` merges cell edges into
+  rails, `_place` drops obstacles on free cells/2×2 blocks away from tee and
+  cup, `_path_len` BFS (2-unit grid, ball clearance) rejects unplayable holes
+  and sets par. 18 holes ≈ 0.1 s.
+* **Physics is server-side and deterministic:** `simulate(hole, start, angle,
+  power, clock)` at 240 Hz → path sampled at 20 fps (`frames`, `cuts` mark
+  teleports/penalty resets, `events` for toasts). Moving obstacles (windmill,
+  drawbridge, kraken swirl) are functions of the obstacle clock
+  `t - g["epoch"]`, so screens draw them in sync with the sim. A shot starts
+  `START_DELAY` (0.5 s) after it's struck so polling screens see it from the
+  start. Phones only send `mgShot {angle, power}`.
+* **Sides** are what own a ball: a player (solo, best ball) or a team
+  (alternate shot, `hitter` rotates). Turn order: `_turn` per group (tee order,
+  then farthest/closest); `pace=together` skips it. `tick` ends a hole when all
+  balls are in/picked up and stopped (players who left get the limit), shows
+  the scorecard `HOLE_PAUSE` s, then the next hole or `_finish` (lowest total,
+  room points 100×(n−place+1)).
+* `public()` sends only the current hole's cells/walls/obstacles, and shot
+  frames only while that shot is animating (≈ 3–8 KB per poll).
+* View: `GolfView.render(el, state, pid, send, isHost)`; a cached static layer
+  (sea, fairway, rails, cup, static obstacles) plus a per-frame dynamic layer,
+  cropped to each hole's bounding box. A 3D renderer could reuse the engine
+  unchanged (the sim is 2D; heights would be cosmetic).
 
 ## 7. Persistence (everything else is in memory)
 

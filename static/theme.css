@@ -205,6 +205,7 @@ input::placeholder, textarea::placeholder { color: #928aa8; opacity: 1; }
 .ph-content summary { font-weight: 750; cursor: pointer; }
 .ph-content button, .ph-auth button { border: 1px solid var(--line); background: var(--accent); color: var(--accent-ink); border-radius: .7rem; padding: .75rem; min-height: 44px; font: inherit; font-weight: 700; }
 .ph-content .ph-danger { background: #43243a; color: #ffbfce; }
+.ph-content .ph-pending { opacity: .55; }
 .ph-content input:not([type="checkbox"]), .ph-content select, .ph-auth input { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: .6rem; padding: .7rem; font: inherit; font-size: 16px; margin-top: .4rem; }
 .ph-game-label { display: block; font-size: .85rem; color: var(--muted); }
 .ph-actions { display: flex; gap: .6rem; flex-wrap: wrap; }
@@ -389,3 +390,84 @@ input::placeholder, textarea::placeholder { color: #928aa8; opacity: 1; }
 .sd-chatform input { flex: 1; min-width: 0; min-height: 40px; border-radius: .6rem; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 0 .6rem; font: inherit; }
 @media (min-width: 900px) { #view-sudoku.sd-view { width: min(100%, 1100px); } }
 @media (prefers-reduced-motion: reduce) { .sd-cell.sd-wrong { animation: none; background: #f43f5e; } .sd-prog span, .sd-cell { transition: none; } }
+
+/* Sudoku: shortcut keys, pause, lives */
+.sd-view kbd { display: inline-block; min-width: 1.35em; padding: 0 .3em; border: 1px solid currentColor; border-bottom-width: 2px; border-radius: .3rem; font: 700 .7em/1.4 ui-monospace, monospace; opacity: .6; text-align: center; }
+.sd-paused { text-align: center; padding: 2.2rem 1rem; margin: .6rem 0; border: 2px dashed var(--line); border-radius: 1rem; background: var(--panel-2); }
+.sd-paused b { font-size: 1.6rem; }
+.sd-paused p { color: var(--muted); margin: .5rem 0 0; }
+.sd-lives { letter-spacing: .1em; font-size: .9rem; }
+
+/* ===================== Mini golf ===================== */
+.mg-view { width: min(100%, 560px); margin: 0 auto; padding: .6rem .5rem 2rem; display: flex; flex-direction: column; gap: .75rem; }
+.mg-view.mg-host { width: min(100%, 1280px); }
+.mg-head h1 { margin: 0; font-size: 1.5rem; }
+.mg-sub { margin: .15rem 0 0; color: var(--muted); }
+.mg-main { display: flex; flex-direction: column; gap: .75rem; }
+.mg-host .mg-main { flex-direction: row; align-items: flex-start; }
+.mg-stage { position: relative; display: flex; justify-content: center; }
+.mg-host .mg-stage { flex: 1 1 auto; }
+.mg-canvas { display: block; border-radius: .9rem; box-shadow: 0 8px 30px rgba(0,0,0,.4); touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair; }
+.mg-side:empty { display: none; }
+.mg-host .mg-side { flex: 0 0 340px; }
+.mg-toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); max-width: 90%; padding: .5rem .9rem; border-radius: 999px; background: rgba(15,12,30,.88); color: #fff; font-weight: 700; text-align: center; pointer-events: none; border: 1px solid var(--line); }
+.mg-toast.mg-good { background: #1d6b3a; }
+.mg-toast.mg-bad { background: #8a2340; }
+.mg-power { position: absolute; left: 10%; right: 10%; bottom: 10px; height: 10px; border-radius: 99px; background: rgba(0,0,0,.45); overflow: hidden; pointer-events: none; }
+.mg-power span { display: block; height: 100%; width: 0; }
+.mg-status { margin: 0; font-weight: 700; text-align: center; min-height: 1.3em; }
+.mg-error { margin: 0; color: #ffbfce; text-align: center; }
+.mg-error:empty { display: none; }
+.mg-board { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+.mg-board li { display: grid; grid-template-columns: auto 1fr auto; grid-template-rows: auto auto; column-gap: .55rem; align-items: center; padding: .5rem .7rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--panel-2); }
+.mg-board li .mg-dot { grid-row: span 2; }
+.mg-board li span:not(.mg-dot) { grid-column: 2; color: var(--muted); font-size: .85rem; }
+.mg-board li em { grid-column: 3; grid-row: 1 / span 2; font-style: normal; font-weight: 800; font-size: 1.2rem; }
+.mg-board li.mg-up { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
+.mg-board li.mg-gone { opacity: .5; }
+.mg-dot { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%; margin-right: .35rem; vertical-align: middle; }
+.mg-log { list-style: none; margin: .5rem 0 0; padding: 0; color: var(--muted); font-size: .85rem; display: flex; flex-direction: column; gap: .2rem; }
+.mg-view button { border: 1px solid var(--line); background: var(--accent); color: var(--accent-ink); border-radius: .7rem; padding: .65rem 1rem; min-height: 44px; font: inherit; font-weight: 700; cursor: pointer; }
+.mg-view button.mg-ghost { background: var(--panel-2); color: var(--text); }
+.mg-view button.mg-danger { background: #be315b; color: #fff; }
+.mg-view button.mg-go { font-size: 1.1rem; padding: .8rem 1.6rem; }
+.mg-side > button { width: 100%; margin-top: .6rem; }
+.mg-controls { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; margin-top: .6rem; }
+.mg-settings label { display: flex; flex-direction: column; gap: .3rem; flex: 1 1 200px; font-size: .85rem; color: var(--muted); }
+.mg-settings select { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: .6rem; padding: .6rem; font: inherit; font-size: 16px; }
+.mg-help, .mg-legend { color: var(--muted); margin: 0; }
+.mg-h2, .mg-obs-head h2 { margin: .4rem 0 .2rem; font-size: 1.1rem; }
+.mg-obs-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem; }
+.mg-obs-head span { display: flex; gap: .4rem; flex-wrap: wrap; }
+.mg-obs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .45rem; }
+.mg-obs label { display: flex; gap: .55rem; align-items: center; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--panel-2); cursor: pointer; height: 100%; box-sizing: border-box; }
+.mg-obs li.mg-off label { opacity: .5; }
+.mg-obs input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+.mg-emo { font-size: 1.5rem; }
+.mg-obs small { display: block; color: var(--muted); font-size: .78rem; }
+.mg-teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem; }
+.mg-team { border: 2px solid var(--c); border-radius: .8rem; padding: .6rem .7rem; background: color-mix(in srgb, var(--c) 10%, var(--panel-2)); }
+.mg-team h3 { margin: 0 0 .3rem; color: var(--c); font-size: 1rem; }
+.mg-team ul { list-style: none; margin: 0 0 .5rem; padding: 0; }
+.mg-team .mg-empty { color: var(--muted); font-style: italic; }
+.mg-team button { width: 100%; background: var(--c); color: #111; }
+.mg-chip { display: inline-block; padding: .15rem .6rem; border-radius: 99px; border: 1px solid var(--c); color: var(--c); }
+.mg-sc summary, .mg-how summary { font-weight: 750; cursor: pointer; }
+.mg-card { overflow-x: auto; margin-top: .5rem; }
+.mg-card table { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: .85rem; min-width: 100%; }
+.mg-card th, .mg-card td { border: 1px solid var(--line); padding: .3rem .4rem; text-align: center; min-width: 1.7rem; }
+.mg-card th:first-child { text-align: left; white-space: nowrap; position: sticky; left: 0; background: var(--panel); }
+.mg-card .mg-parrow td, .mg-card .mg-parrow th { color: var(--muted); }
+.mg-card .mg-cur { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.mg-card .mg-ace { background: #f5b83d; color: #222; font-weight: 800; }
+.mg-card .mg-under { color: #5be38c; font-weight: 800; }
+.mg-card .mg-over { color: #ff8fa3; }
+.mg-card .mg-missed { opacity: .45; }
+.mg-teamtot { margin: .4rem 0 0; }
+.mg-stand { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+.mg-stand li { display: flex; align-items: center; gap: .5rem; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--panel-2); }
+.mg-stand li b { flex: 1; }
+.mg-stand li b small { display: block; color: var(--muted); font-weight: 400; }
+.mg-place { width: 2.2rem; font-weight: 800; }
+.mg-how p { color: var(--muted); }
+@media (max-width: 900px) { .mg-host .mg-main { flex-direction: column; } .mg-host .mg-side { flex: none; width: 100%; } }

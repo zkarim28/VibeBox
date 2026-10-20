@@ -8,6 +8,13 @@ Modes
   zen          no clock, no ranking. Each player picks a difficulty and gets
                their own board, as many as they like.
 
+Options (host / table owner, in the lobby)
+  boards       competitive only: "same" (everyone races one board) or "each"
+               (every player gets their own random board at the level).
+  lives        0 = unlimited mistakes, 3 = three strikes: a racer is out on
+               their 3rd wrong digit; in co-op the team shares 3 lives.
+  sdPause      freezes the clock and hides the board until resumed.
+
 Boards come from the graded bank (sudoku_puzzles.json). Each round picks a
 board none of the current players has played before, then deals a random
 equivalent of it (relabelled digits, shuffled rows/columns) so it looks new.
@@ -28,6 +35,8 @@ from datetime import datetime
 import sudoku_puzzles as sp
 
 MODES = ["competitive", "coop", "zen"]
+BOARDS = ["same", "each"]
+LIVES = [0, 3]
 MISTAKE_PENALTY = 30          # seconds added per wrong digit (competitive)
 HINT_PENALTY = 45             # seconds added per hint (competitive)
 CHAT_KEEP = 80                # messages kept per table
@@ -112,8 +121,9 @@ def bank_info(names, history=None):
 
 
 # -------------------------------------------------------------------- game ---
-def fresh(mode="competitive", difficulty="medium"):
-    return dict(phase="lobby", mode=mode, difficulty=difficulty, rid="",
+def fresh(mode="competitive", difficulty="medium", boards="same", lives=0):
+    return dict(phase="lobby", mode=mode, difficulty=difficulty, boards=boards, lives=lives,
+                pausedAt=0, rid="",
                 startedAt=0, endedAt=0, board=None, players={}, shared=None,
                 order=[], message="", revision=random.randrange(1, 2**48),
                 watchers={}, peeked={}, chat=[], chatSeq=0, lastChat={})
@@ -121,7 +131,7 @@ def fresh(mode="competitive", difficulty="medium"):
 
 def _reset(g, mode, level):
     """Back to a clean round, keeping the table's chat."""
-    keep = {k: g.get(k) for k in ("chat", "chatSeq", "lastChat")}
+    keep = {k: g.get(k) for k in ("chat", "chatSeq", "lastChat", "boards", "lives")}
     g.clear()
     g.update(fresh(mode, level))
     g.update({k: v for k, v in keep.items() if v is not None})
@@ -139,7 +149,7 @@ def _deal(level, names):
 def _new_seat(name, board=None):
     seat = {"name": name, "cells": None, "mistakes": 0, "placed": 0,
             "finishedAt": 0, "startedAt": time.time(), "board": board,
-            "rid": secrets.token_hex(4), "recorded": False, "hints": 0}
+            "rid": secrets.token_hex(4), "recorded": False, "hints": 0, "out": False}
     if board:
         seat["cells"] = list(board["puzzle"])
     return seat
@@ -172,7 +182,8 @@ def _finish_round(g, players):
     g["phase"], g["endedAt"] = "done", time.time()
     board, rows = g["board"], []
     if g["mode"] == "competitive":
-        ranked = sorted((pid for pid in g["order"] if g["players"][pid]["finishedAt"]),
+        ranked = sorted((pid for pid in g["order"]
+                         if g["players"][pid]["finishedAt"] and not g["players"][pid]["out"]),
                         key=lambda pid: _adjusted(g, g["players"][pid]))
         n = len(g["order"])
         for place, pid in enumerate(ranked, 1):
@@ -180,23 +191,28 @@ def _finish_round(g, players):
             seat["place"] = place
             if pid in players:
                 players[pid]["score"] += 100 * (n - place + 1)
-            rows.append(_play_row(g, seat, board, "solved", place, _adjusted(g, seat)))
+            rows.append(_play_row(g, seat, seat["board"] or board, "solved", place, _adjusted(g, seat)))
         for pid in g["order"]:
             seat = g["players"][pid]
-            if not seat["finishedAt"]:
-                rows.append(_play_row(g, seat, board, "unfinished"))
+            if seat["out"]:
+                rows.append(_play_row(g, seat, seat["board"] or board, "out"))
+            elif not seat["finishedAt"]:
+                rows.append(_play_row(g, seat, seat["board"] or board, "unfinished"))
     else:
         solved = g["shared"]["cells"] == list(board["solution"])
+        result = "solved" if solved else "out" if g["shared"].get("out") else "unfinished"
         for pid in g["order"]:
             seat = g["players"][pid]
-            rows.append(_play_row(g, seat, board, "solved" if solved else "unfinished",
+            rows.append(_play_row(g, seat, board, result,
                                   seconds=g["endedAt"] - g["startedAt"] if solved else None))
     _record(rows)
     g["revision"] += 1
 
 
 def _adjusted(g, seat):
-    return (seat["finishedAt"] - g["startedAt"] + MISTAKE_PENALTY * seat["mistakes"]
+    """Race time + penalties. With lives on, a mistake costs a life instead of time."""
+    per_mistake = 0 if g.get("lives") else MISTAKE_PENALTY
+    return (seat["finishedAt"] - g["startedAt"] + per_mistake * seat["mistakes"]
             + HINT_PENALTY * seat.get("hints", 0))
 
 
@@ -212,13 +228,31 @@ def _close_zen(g):
 def tick(g, players):
     """Janitor hook: a competitive round ends once every player still in the
     room has finished. Returns True if anything changed."""
-    if g["phase"] != "playing" or g["mode"] != "competitive":
+    if g["phase"] != "playing" or g["mode"] != "competitive" or g["pausedAt"]:
         return False
     left = [pid for pid in g["order"] if pid in players]
-    if not left or all(g["players"][pid]["finishedAt"] for pid in left):
+    if not left or all(g["players"][pid]["finishedAt"] for pid in left):   # out = finished too
         _finish_round(g, players)
         return True
     return False
+
+
+def _resume(g):
+    """Unpause: shift every clock forward by the pause so it doesn't count."""
+    if not g["pausedAt"]:
+        return
+    gap = time.time() - g["pausedAt"]
+    g["pausedAt"] = 0
+    if g["startedAt"]:
+        g["startedAt"] += gap
+    for seat in g["players"].values():
+        seat["startedAt"] += gap
+        if seat["finishedAt"]:
+            seat["finishedAt"] += gap
+
+
+def _out_of_lives(g, mistakes):
+    return bool(g["lives"]) and g["mode"] != "zen" and mistakes >= g["lives"]
 
 
 def act(g, players, pid, action, data):
@@ -231,6 +265,10 @@ def act(g, players, pid, action, data):
             g["mode"] = value
         elif key == "difficulty" and value in sp.LEVELS:
             g["difficulty"] = value
+        elif key == "boards" and value in BOARDS:
+            g["boards"] = value
+        elif key == "lives" and str(value) in {str(n) for n in LIVES}:
+            g["lives"] = int(value)
         else:
             return "Unknown setting.", {}
         g["revision"] += 1
@@ -244,7 +282,7 @@ def act(g, players, pid, action, data):
             return "Players need to join first.", {}
         names = [players[p]["name"] for p in here]
         mode, level = g["mode"], g["difficulty"]
-        if mode == "zen":
+        if mode == "zen" or (mode == "competitive" and g["boards"] == "each"):
             deals = {p: _deal(level, [players[p]["name"]]) for p in here}
         else:
             shared_board = _deal(level, names)
@@ -260,11 +298,23 @@ def act(g, players, pid, action, data):
             board = g["board"] = deals[here[0]]
             if mode == "coop":
                 g["shared"] = {"cells": list(board["puzzle"]), "by": [0] * 81, "mistakes": 0, "hints": 0}
-            if not board["fresh"]:
+            if not all(d["fresh"] for d in deals.values()):
                 g["message"] = "Everyone here has played every board at this level — dealing a reshuffled repeat."
         return None, {}
 
+    if action == "sdPause":
+        if g["phase"] != "playing":
+            return "Nothing to pause.", {}
+        if data.get("value", not g["pausedAt"]):
+            g["pausedAt"] = g["pausedAt"] or time.time()
+        else:
+            _resume(g)
+            tick(g, players)
+        g["revision"] += 1
+        return None, {}
+
     if action == "sdEnd":
+        _resume(g)
         if g["phase"] != "playing":
             return None, {}
         if g["mode"] == "zen":
@@ -276,6 +326,7 @@ def act(g, players, pid, action, data):
         return None, {}
 
     if action == "sdLobby":
+        _resume(g)
         if g["phase"] == "playing":
             if g["mode"] == "zen":
                 _close_zen(g)
@@ -287,6 +338,8 @@ def act(g, players, pid, action, data):
     # ---- player actions ----
     if pid not in players:
         return "Join the game first.", {}
+    if g["pausedAt"] and action in ("sdPlace", "sdHint", "sdZenNew"):
+        return "The game is paused.", {}
 
     if action == "sdZenNew":
         if g["phase"] != "playing" or g["mode"] != "zen":
@@ -380,7 +433,7 @@ def _cant_watch(g, pid, target):
     if target == pid or target not in g["players"]:
         return "Pick someone else to watch."
     mine = g["players"].get(pid)
-    if g["mode"] == "competitive" and mine and not mine["finishedAt"]:
+    if g["mode"] == "competitive" and mine and not mine["finishedAt"]:   # out counts as finished
         return "Finish your own board before watching — spectators see the solution."
     if g["mode"] == "coop" and mine:
         return "You're on this board — spectators see the solution."
@@ -420,8 +473,11 @@ def _place_own(g, players, pid, seat, i, d):
             return None, {}
         if str(d) != board["solution"][i]:
             seat["mistakes"] += 1
+            if _out_of_lives(g, seat["mistakes"]):
+                seat["out"], seat["finishedAt"] = True, time.time()
+                tick(g, players)
             g["revision"] += 1
-            return None, {"correct": False}
+            return None, {"correct": False, "out": seat["out"]}
     cells[i] = str(d)
     seat["placed"] += 1
     if cells == list(board["solution"]):
@@ -443,6 +499,10 @@ def _place_coop(g, players, pid, seat, i, d):
     if str(d) != board["solution"][i]:
         seat["mistakes"] += 1
         sh["mistakes"] += 1
+        if _out_of_lives(g, sh["mistakes"]):
+            sh["out"] = True
+            g["message"] = "Out of lives — the team made 3 mistakes."
+            _finish_round(g, players)
         g["revision"] += 1
         return None, {"correct": False}
     sh["cells"][i] = str(d)
@@ -458,9 +518,12 @@ def _place_coop(g, players, pid, seat, i, d):
 def public(g, players, pid=None):
     """Never includes a solution."""
     now = time.time()
-    out = {k: g[k] for k in ("phase", "mode", "difficulty", "rid", "startedAt",
-                             "endedAt", "message", "revision")}
-    out.update(serverNow=now, levels=sp.LEVELS, modes=MODES, penalty=MISTAKE_PENALTY,
+    out = {k: g[k] for k in ("phase", "mode", "difficulty", "boards", "lives", "pausedAt",
+                             "rid", "startedAt", "endedAt", "message", "revision")}
+    paused = bool(g["pausedAt"]) and g["phase"] == "playing"
+    out["paused"] = paused
+    out.update(serverNow=now, levels=sp.LEVELS, modes=MODES,
+               penalty=0 if g["lives"] else MISTAKE_PENALTY,
                hintPenalty=HINT_PENALTY, inGame=pid in g["players"],
                peeked=bool(g["peeked"].get(pid)))
 
@@ -474,7 +537,7 @@ def public(g, players, pid=None):
     if target is not None and _cant_watch(g, pid, target):
         g["watchers"].pop(pid, None)
         target = None
-    if target is not None:
+    if target is not None and not paused:
         tseat = g["players"][target]
         tb = tseat["board"] or g["board"]
         out["spectate"] = {"pid": target, "name": tseat["name"], "puzzle": tb["puzzle"],
@@ -496,14 +559,14 @@ def public(g, players, pid=None):
             continue
         b = seat["board"] or g["board"]
         cells = g["shared"]["cells"] if g["mode"] == "coop" else seat["cells"]
-        row = {"pid": p, "name": seat["name"], "mistakes": seat["mistakes"],
+        row = {"pid": p, "name": seat["name"], "mistakes": seat["mistakes"], "out": seat["out"],
                "placed": seat["placed"], "here": p in players, "hints": seat.get("hints", 0),
                "watchable": p != pid and not _cant_watch(g, pid, p) if pid is not None else False,
                "color": players.get(p, {}).get("color", "#888")}
         if b and cells:
             row.update(filled=_filled(cells, b["puzzle"]), blanks=_blanks(b["puzzle"]),
                        level=b["level"])
-        if seat["finishedAt"]:
+        if seat["finishedAt"] and not seat["out"]:
             row["seconds"] = int(seat["finishedAt"] - (g["startedAt"] if g["mode"] == "competitive" else seat["startedAt"]))
             if g["mode"] == "competitive":
                 row["adjusted"] = int(_adjusted(g, seat))
@@ -515,19 +578,22 @@ def public(g, players, pid=None):
                                    -r.get("filled", 0), r["mistakes"]))
     out["roster"] = roster
 
-    if g["mode"] == "coop" and g["board"]:
+    if g["mode"] == "coop" and g["board"] and not paused:
         sh = g["shared"]
         out.update(puzzle=g["board"]["puzzle"], cells="".join(sh["cells"]), by=sh["by"],
                    teamMistakes=sh["mistakes"], teamHints=sh.get("hints", 0), boardId=g["board"]["id"],
                    level=g["board"]["level"])
     seat = g["players"].get(pid)
-    if seat and seat["board"]:
+    if seat and seat["board"] and not paused:     # the board stays hidden while paused
         out.update(puzzle=seat["board"]["puzzle"], cells="".join(seat["cells"]),
                    boardId=seat["board"]["id"], level=seat["board"]["level"],
                    seatRid=seat["rid"], myStart=seat["startedAt"])
     if seat:
         out["me"] = {"mistakes": seat["mistakes"], "finished": bool(seat["finishedAt"]),
-                     "place": seat.get("place"), "hints": seat.get("hints", 0)}
+                     "place": seat.get("place"), "hints": seat.get("hints", 0),
+                     "out": seat["out"]}
+    if g["mode"] == "coop" and g["shared"]:
+        out["teamOut"] = bool(g["shared"].get("out"))
     return out
 
 

@@ -1,0 +1,15 @@
+# Checks the online server and its public link; restarts vibebox-online.service
+# if they stay down. Triggered by vibebox-watchdog.timer. Install:
+#
+#   cp deploy/vibebox-watchdog.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now vibebox-watchdog.timer
+#
+# Logs:  journalctl --user -u vibebox-watchdog -o cat
+
+[Unit]
+Description=VibeBox online watchdog — restart the server if the site is down
+
+[Service]
+Type=oneshot
+ExecStart=%h/VibeBox/deploy/vibebox-watchdog.sh

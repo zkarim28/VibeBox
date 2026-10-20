@@ -15,7 +15,7 @@ import time
 
 import sudoku
 
-TABLE_ONLY = {"sdSet", "sdStart", "sdEnd", "sdLobby"}   # table owner only
+TABLE_ONLY = {"sdSet", "sdStart", "sdEnd", "sdLobby", "sdPause"}   # table owner only
 MAX_TABLES = 40
 MAX_MEMBERS = 30
 MAX_VISITORS = 500
@@ -131,7 +131,8 @@ class Tables:
             rows.sort(key=lambda r: (r["phase"] != "lobby", -r["people"]))
             return {"ok": True, "tables": rows, "current": self.where.get(int(mid))}
 
-    def create(self, mid, token, mode, difficulty, name="", listed=True, start=False):
+    def create(self, mid, token, mode, difficulty, name="", listed=True, start=False,
+               boards="same", lives=0):
         with self.lock:
             v = self._auth(mid, token)
             if not v:
@@ -139,6 +140,8 @@ class Tables:
             mid = int(mid)
             if mode not in sudoku.MODES or difficulty not in sudoku.sp.LEVELS:
                 return {"ok": False, "error": "Pick a mode and difficulty."}
+            boards = boards if boards in sudoku.BOARDS else "same"
+            lives = int(lives) if str(lives) in {str(n) for n in sudoku.LIVES} else 0
             if not self._rate("create", mid, CREATE_WINDOW, CREATE_MAX):
                 return {"ok": False, "error": "Too many new tables — wait a minute."}
             self._reap()
@@ -149,7 +152,7 @@ class Tables:
                 tid = secrets.token_hex(3)
             name = " ".join(str(name or "").split())[:32] or f"{v['name']}'s table"
             t = {"id": tid, "name": name, "owner": mid, "players": {}, "seen": {},
-                 "g": sudoku.fresh(mode, difficulty), "listed": bool(listed), "created": time.time()}
+                 "g": sudoku.fresh(mode, difficulty, boards, lives), "listed": bool(listed), "created": time.time()}
             self.tables[tid] = t
             self._join(mid, t)
             if start:

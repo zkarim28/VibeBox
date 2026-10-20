@@ -4,10 +4,12 @@ globalThis.SudokuView = (() => {
   const LABEL = {easy:'Easy', medium:'Medium', advanced:'Advanced', hard:'Hard', expert:'Expert'};
   const MODE = {competitive:'Competitive', coop:'Co-op', zen:'Zen'};
   const MODE_HELP = {
-    competitive: 'Everyone races the same board. Wrong digits are rejected and add a 30-second penalty. Fastest adjusted time wins.',
+    competitive: 'A race. Wrong digits are rejected and add a 30-second penalty (or cost a life when lives are on). Fastest adjusted time wins.',
     coop: 'One shared board. Everyone fills it in together; mistakes count against the team.',
     zen: 'No clock, no ranking. Pick any difficulty and play at your own pace. Nothing is checked until the board is full.'
   };
+  const BOARDS = {same: 'Everyone races the same board', each: 'Each player gets a random board'};
+  const LIVES = {0: 'Unlimited (time penalty)', 3: '3 lives — out on the 3rd'};
   const SKINS = [
     ['paper-moon', 'Paper Moon', 'the classic lavender'],
     ['midnight-snack', 'Midnight Snack', 'mint on navy, soft & round'],
@@ -35,18 +37,19 @@ globalThis.SudokuView = (() => {
   function skeleton() {
     root.innerHTML = `<div class="sd-head"></div>
       <div class="sd-play" hidden>
-        <div class="sd-bar"><span class="sd-timer"></span><span class="sd-mist"></span></div>
+        <div class="sd-bar"><span class="sd-timer"></span><span class="sd-lives" hidden></span><span class="sd-mist"></span></div>
         <div class="sd-specbar" hidden></div>
         <div class="sd-grid" role="grid" aria-label="Sudoku board">${Array.from({length: 81}, (_, i) =>
           `<button type="button" class="sd-cell" data-i="${i}" role="gridcell" aria-label="Row ${row(i) + 1}, column ${col(i) + 1}"></button>`).join('')}</div>
         <div class="sd-pad" hidden>${[1,2,3,4,5,6,7,8,9].map(d => `<button type="button" data-d="${d}"><b>${d}</b><small></small></button>`).join('')}
-          <button type="button" data-notes class="sd-tool" aria-pressed="false">✎ Notes</button>
-          <button type="button" data-d="0" class="sd-tool">⌫ Erase</button>
-          <button type="button" data-hint class="sd-tool">💡 Hint</button></div>
+          <button type="button" data-notes class="sd-tool" aria-pressed="false" aria-keyshortcuts="N">✎ Notes <kbd>N</kbd></button>
+          <button type="button" data-d="0" class="sd-tool" aria-keyshortcuts="Backspace">⌫ Erase <kbd>⌫</kbd></button>
+          <button type="button" data-hint class="sd-tool" aria-keyshortcuts="H">💡 Hint <kbd>H</kbd></button></div>
         <div class="sd-hintbox" role="status" hidden><p></p><div><button type="button" data-hintfill>Fill it in</button><button type="button" data-hintclose aria-label="Close hint">✕</button></div></div>
         <details class="sd-skins"><summary>🎨 Board style</summary><div class="sd-skin-list">${SKINS.map(([k, name, blurb]) =>
           `<button type="button" data-skin="${k}" data-skin-pick="${k}" aria-pressed="false"><span class="sd-swatch" aria-hidden="true"><b>5</b><b>3</b><b>7</b><b>1</b></span><span>${esc(name)}<small>${esc(blurb)}</small></span></button>`).join('')}</div></details>
       </div>
+      <div class="sd-paused" hidden><b>⏸ Paused</b><p></p></div>
       <p role="alert" class="sd-error"></p>
       <div class="sd-info"></div>
       <details class="sd-chat" open><summary>💬 Chat <span class="sd-chatcount"></span></summary>
@@ -88,7 +91,14 @@ globalThis.SudokuView = (() => {
 
     const showBoard = !!b && (!host || g.mode === 'coop');
     root.querySelector('.sd-play').hidden = !showBoard;
-    const canPlay = showBoard && !host && !g.spectate && g.phase === 'playing' && g.inGame && !(g.me && g.me.finished);
+    const canPlay = showBoard && !host && !g.spectate && g.phase === 'playing' && !g.paused && g.inGame && !(g.me && g.me.finished);
+    const pz = root.querySelector('.sd-paused');
+    pz.hidden = !g.paused;
+    if (g.paused) pz.querySelector('p').textContent = ctrl ? 'The clock is stopped and boards are hidden. Tap Resume (or press P) to carry on.' : 'The clock is stopped and the board is hidden until the game resumes.';
+    const lv = root.querySelector('.sd-lives');
+    const lost = g.mode === 'coop' ? (g.teamMistakes || 0) : (g.me ? g.me.mistakes : 0);
+    lv.hidden = !(g.lives && g.mode !== 'zen' && (g.me || g.mode === 'coop') && !g.spectate);
+    if (!lv.hidden) { const left = Math.max(0, g.lives - lost); lv.textContent = '❤️'.repeat(left) + '🖤'.repeat(g.lives - left); lv.setAttribute('aria-label', `${left} of ${g.lives} lives left`); }
     if (!canPlay) hint = null;
     const spec = root.querySelector('.sd-specbar');
     spec.hidden = !g.spectate;
@@ -192,14 +202,14 @@ globalThis.SudokuView = (() => {
 
   function elapsed() {
     const g = s && s.sudoku; if (!g || g.phase === 'lobby') return null;
-    const end = g.phase === 'done' && g.endedAt ? g.endedAt * 1000 : Date.now() + offset;
+    const end = g.phase === 'done' && g.endedAt ? g.endedAt * 1000 : g.paused ? g.pausedAt * 1000 : Date.now() + offset;
     return (end - g.startedAt * 1000) / 1000;
   }
 
   function paintTimer() {
     const t = root && root.querySelector('.sd-timer'); if (!t) return;
     const g = s.sudoku, e = elapsed();
-    t.textContent = g.mode === 'zen' ? '🌿 Zen' : e == null ? '' : '⏱ ' + clock(e);
+    t.textContent = g.mode === 'zen' ? '🌿 Zen' : e == null ? '' : (g.paused ? '⏸ ' : '⏱ ') + clock(e);
   }
 
   function head(g) {
@@ -208,6 +218,7 @@ globalThis.SudokuView = (() => {
     if (g.phase === 'lobby') sub = host ? 'Choose a mode and difficulty, then start.' : `Up next: ${MODE[g.mode]} · ${lvl}. Waiting for the host…`;
     if (g.phase === 'playing' && g.mode === 'zen') sub = 'Zen mode · play at your own pace';
     if (g.phase === 'playing' && g.mode !== 'zen' && g.level) sub = `${MODE[g.mode]} · ${LABEL[g.level]} · board ${esc(g.boardId)}`;
+    if (g.phase === 'playing' && g.paused) sub = 'Paused';
     if (g.phase === 'done') sub = g.mode === 'zen' ? 'Zen session over' : 'Round over';
     return `<h1>🔢 Sudoku</h1><p class="sd-sub">${sub}</p>`;
   }
@@ -223,7 +234,8 @@ globalThis.SudokuView = (() => {
       let right;
       const hints = r.hints ? ` · ${r.hints} hint${r.hints === 1 ? '' : 's'}` : '';
       if (g.mode === 'coop') right = `${r.placed} placed · ${r.mistakes} wrong${hints}`;
-      else if (r.seconds != null) right = g.mode === 'competitive' ? `✓ ${clock(r.adjusted)}${r.mistakes ? ` (${clock(r.seconds)} + ${r.mistakes}×${g.penalty}s)` : ''}` : `✓ solved in ${clock(r.seconds)}`;
+      else if (r.out) right = `💔 out of lives · ${r.filled ?? 0}/${r.blanks ?? 0}`;
+      else if (r.seconds != null) right = g.mode === 'competitive' ? `✓ ${clock(r.adjusted)}${r.mistakes && g.penalty ? ` (${clock(r.seconds)} + ${r.mistakes}×${g.penalty}s)` : ''}` : `✓ solved in ${clock(r.seconds)}`;
       else right = g.mode === 'competitive' ? `${r.filled ?? 0}/${r.blanks ?? 0} · ${r.mistakes} wrong${hints}` : `${LABEL[r.level] || ''} · ${r.filled ?? 0}/${r.blanks ?? 0}${hints}`;
       if (r.seconds != null && hints) right += hints;
       const watching = g.spectate && g.spectate.pid === r.pid;
@@ -233,6 +245,13 @@ globalThis.SudokuView = (() => {
       return `<li class="${r.here ? '' : 'sd-gone'}"><span class="sd-dot" style="background:${esc(r.color)}"></span><b>${r.place ? '#' + r.place + ' ' : ''}${esc(r.name)}${you}</b><span>${right}${r.here ? '' : ' · left'}</span>${g.mode === 'coop' ? '' : progress(r)}</li>`;
     }).join('');
     return rows ? `<ul class="sd-roster">${rows}</ul>` : '';
+  }
+
+  function rules(g) {
+    const bits = [];
+    if (g.mode === 'competitive') bits.push(g.boards === 'each' ? 'Everyone gets their own random board.' : 'Everyone races the same board.');
+    if (g.mode !== 'zen' && g.lives) bits.push(g.mode === 'coop' ? `The team has ${g.lives} lives.` : `${g.lives} lives: your ${g.lives}rd mistake knocks you out.`);
+    return bits.length ? ' ' + bits.join(' ') : '';
   }
 
   function pickers(label) {
@@ -245,8 +264,10 @@ globalThis.SudokuView = (() => {
       if (ctrl) out += `<div class="sd-controls">
           <label>Mode <select data-set="mode">${g.modes.map(m => `<option value="${m}"${m === g.mode ? ' selected' : ''}>${MODE[m]}</option>`).join('')}</select></label>
           <label>Difficulty <select data-set="difficulty">${g.levels.map(l => `<option value="${l}"${l === g.difficulty ? ' selected' : ''}>${LABEL[l]}</option>`).join('')}</select></label>
+          ${g.mode === 'competitive' ? `<label>Boards <select data-set="boards">${Object.entries(BOARDS).map(([k, t]) => `<option value="${k}"${k === g.boards ? ' selected' : ''}>${t}</option>`).join('')}</select></label>` : ''}
+          ${g.mode !== 'zen' ? `<label>Mistakes <select data-set="lives">${Object.entries(LIVES).map(([k, t]) => `<option value="${k}"${+k === g.lives ? ' selected' : ''}>${t}</option>`).join('')}</select></label>` : ''}
           <button type="button" data-act="sdStart">Start ${MODE[g.mode]}</button></div>`;
-      out += `<p class="sd-help">${MODE_HELP[g.mode]}</p>`;
+      out += `<p class="sd-help">${MODE_HELP[g.mode]}${rules(g)}</p>`;
       if (g.bank) out += `<div class="sd-bank"><h2>Boards nobody here has played</h2><ul>${g.levels.map(l =>
         `<li class="${l === g.difficulty ? 'sd-on' : ''}"><b>${LABEL[l]}</b><span>${g.bank[l].fresh} of ${g.bank[l].total}</span></li>`).join('')}</ul></div>`;
       if (host && g.recent && g.recent.length) out += `<details class="sd-recent"><summary>Recently played</summary><ul>${g.recent.map(r =>
@@ -260,15 +281,16 @@ globalThis.SudokuView = (() => {
         : `<p>A board is in progress. Help fill it in, or tap 👀 Watch on a player to spectate with the solution ghosted in (then you can't join this round).</p><button type="button" class="sd-join" data-act="sdJoin">Join in and help</button>`;
       if (g.mode === 'competitive' && !host && !g.inGame) out += `<p>This race started before you joined. Tap 👀 Watch on anyone to spectate with the solution ghosted in. You'll be in the next race.</p>`;
       if (g.mode === 'zen' && !host && !g.inGame) out += `<p>Or tap 👀 Watch to see how someone else is doing.</p>`;
-      if (g.mode === 'competitive' && g.me && g.me.finished) out += `<p class="sd-win">✓ Done! Waiting for the others…</p>`;
+      if (g.mode === 'competitive' && g.me && g.me.out) out += `<p class="sd-win">💔 Out of lives! Tap 👀 Watch to follow the others.</p>`;
+      else if (g.mode === 'competitive' && g.me && g.me.finished) out += `<p class="sd-win">✓ Done! Waiting for the others…</p>`;
       out += roster(g);
       if (g.mode === 'zen' && !host && g.inGame && !(g.me && g.me.finished)) out += `<details class="sd-new"><summary>Start a different board</summary>${pickers('Your current board will be logged as unfinished.')}</details>`;
-      if (ctrl) out += `<div class="sd-controls"><button type="button" data-act="sdEnd" class="sd-danger">${g.mode === 'zen' ? 'End Zen session' : 'End round now'}</button></div>`;
+      if (ctrl) out += `<div class="sd-controls"><button type="button" data-pause aria-keyshortcuts="P">${g.paused ? '▶ Resume' : '⏸ Pause'} <kbd>P</kbd></button><button type="button" data-act="sdEnd" class="sd-danger">${g.mode === 'zen' ? 'End Zen session' : 'End round now'}</button></div>`;
     }
     if (g.phase === 'done') {
       if (g.mode === 'coop') {
         const solved = (g.roster || []).length && g.cells && !g.cells.includes('0');
-        out += `<p class="sd-win">${solved ? `🎉 Solved together in ${clock(elapsed())} with ${g.teamMistakes} mistake${g.teamMistakes === 1 ? '' : 's'}.` : 'The board was left unfinished.'}</p>`;
+        out += `<p class="sd-win">${g.teamOut ? '💔 Out of lives — the team made ' + g.lives + ' mistakes.' : solved ? `🎉 Solved together in ${clock(elapsed())} with ${g.teamMistakes} mistake${g.teamMistakes === 1 ? '' : 's'}.` : 'The board was left unfinished.'}</p>`;
       } else if (g.mode === 'competitive') {
         const w = (g.roster || []).find(r => r.place === 1);
         out += `<p class="sd-win">${w ? `🏆 ${esc(w.name)} wins with ${clock(w.adjusted)}` : 'Nobody finished this one.'}</p>`;
@@ -276,8 +298,13 @@ globalThis.SudokuView = (() => {
       out += roster(g);
       if (ctrl) out += `<div class="sd-controls"><button type="button" data-act="sdStart">Play again</button><button type="button" data-act="sdLobby">Change mode / difficulty</button></div>`;
     }
-    out += `<details class="sd-how"><summary>How to play</summary><p>Fill every row, column and 3×3 box with 1–9, no repeats. Tap a cell, then a number. Turn on ✎ Notes to pencil in candidates: the board greys out and your notes turn white while you're noting (notes stay on your phone). Pick a look under 🎨 Board style; it's saved on this device. On a keyboard: arrows move, 1–9 fill, Backspace erases, N toggles notes, H asks for a hint.</p><p><b>💡 Hints</b> point at the next cell you can work out logically and say why; you choose whether to fill it in. In Competitive each hint adds ${s && s.sudoku ? s.sudoku.hintPenalty : 45} seconds. Co-op counts them for the team. In Zen they're free.</p><p><b>Spectating:</b> people who arrive mid-round can 👀 Watch any player and see the solution faintly behind the board. Their chat messages stay hidden from anyone still solving until the round ends.</p><p><b>Difficulty</b> is set by the hardest technique a board needs: Easy and Medium need only singles; Advanced adds pointing/claiming; Hard adds pairs and triples; Expert adds X-wings, swordfish and XY-wings. Each round deals a board nobody in the room has played yet.</p></details>`;
+    out += `<details class="sd-how"><summary>How to play</summary><p>Fill every row, column and 3×3 box with 1–9, no repeats. Tap a cell, then a number. Turn on ✎ Notes to pencil in candidates: the board greys out and your notes turn white while you're noting (notes stay on your phone). Pick a look under 🎨 Board style; it's saved on this device. On a keyboard: arrows move, 1–9 fill, Backspace erases, N toggles notes, H asks for a hint, P pauses (host / table owner).</p><p><b>Rules the host can set:</b> in Competitive, everyone races the same board or each player gets their own random board at the chosen level. With <b>3 lives</b>, your 3rd wrong digit knocks you out of the race (you can still watch); in Co-op the team shares 3 lives. <b>⏸ Pause</b> stops the clock for everyone and hides the boards.</p><p><b>💡 Hints</b> point at the next cell you can work out logically and say why; you choose whether to fill it in. In Competitive each hint adds ${s && s.sudoku ? s.sudoku.hintPenalty : 45} seconds. Co-op counts them for the team. In Zen they're free.</p><p><b>Spectating:</b> people who arrive mid-round can 👀 Watch any player and see the solution faintly behind the board. Their chat messages stay hidden from anyone still solving until the round ends.</p><p><b>Difficulty</b> is set by the hardest technique a board needs: Easy and Medium need only singles; Advanced adds pointing/claiming; Hard adds pairs and triples; Expert adds X-wings, swordfish and XY-wings. Each round deals a board nobody in the room has played yet.</p></details>`;
     return out;
+  }
+
+  function togglePause() {
+    const g = s && s.sudoku;
+    if (ctrl && g && g.phase === 'playing') run('sdPause', {value: !g.paused}, true);
   }
 
   function rerender() { if (s) render(root, s, pid, send, host, {controls: ctrl}); }
@@ -288,8 +315,11 @@ globalThis.SudokuView = (() => {
     rerender();
   }
 
-  async function run(action, extra = {}) {
-    if (busy) return null;
+  // force=true queues behind a request in flight instead of being dropped
+  // (settings and pause must never be lost to a double tap).
+  async function run(action, extra = {}, force = false) {
+    if (busy && !force) return null;
+    while (busy) await new Promise(r => setTimeout(r, 30));
     busy = true;
     try {
       const r = await send(action, extra);
@@ -342,6 +372,7 @@ globalThis.SudokuView = (() => {
     if (d && !d.disabled) { enter(+d.dataset.d); return; }
     if (e.target.closest('[data-notes]')) { notesMode = !notesMode; rerender(); return; }
     if (e.target.closest('[data-hint]')) { askHint(); return; }
+    if (e.target.closest('[data-pause]')) { togglePause(); return; }
     if (e.target.closest('[data-hintclose]')) { hint = null; rerender(); return; }
     if (e.target.closest('[data-hintfill]') && hint && hint.d) { const h = hint; hint = null; sel = h.i; notesMode = false; enter(h.d); return; }
     const w = e.target.closest('[data-watch]');
@@ -363,12 +394,14 @@ globalThis.SudokuView = (() => {
 
   function onChange(e) {
     const sel = e.target.closest('[data-set]');
-    if (sel) run('sdSet', {key: sel.dataset.set, value: sel.value});
+    if (sel) run('sdSet', {key: sel.dataset.set, value: sel.value}, true);
   }
 
   document.addEventListener('keydown', e => {
-    if (!root || !s || !s.sudoku || root.offsetParent === null || host) return;
+    if (!root || !s || !s.sudoku || root.offsetParent === null) return;
+    if (host && !(e.key === 'p' || e.key === 'P')) return;
     if (e.target.closest && e.target.closest('input, textarea, select')) return;
+    if ((e.key === 'p' || e.key === 'P') && ctrl) { togglePause(); return; }
     const pad = root.querySelector('.sd-pad'); if (pad.hidden) return;
     const k = e.key;
     if (/^[1-9]$/.test(k)) { enter(+k); e.preventDefault(); }

@@ -913,6 +913,7 @@
   <!-- ===== LUDO ===== -->
   <div id="bs" class="bs-view" hidden></div>
   <div id="sudoku" class="sd-view" hidden></div>
+  <div id="minigolf" class="mg-view" hidden></div>
   <div id="ludo" hidden>
     <div class="lu-you" id="lu-you"></div>
     <div class="lu-status" id="lu-status"></div>
@@ -1020,6 +1021,7 @@
 <script src="/results.js"></script>
 <script src="/bs.js"></script>
 <script src="/sudoku.js"></script>
+<script src="/minigolf.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -1193,9 +1195,10 @@ function setView(game) {
   $("mafia").hidden = game !== "mafia";
   $("bs").hidden = game !== "bs";
   $("sudoku").hidden = game !== "sudoku";
+  $("minigolf").hidden = game !== "minigolf";
   $("ludo").hidden = game !== "ludo";
   $("wordhunt").hidden = game !== "word-hunt";
-  $("waiting").hidden = ["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs", "sudoku"].includes(game);
+  $("waiting").hidden = ["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs", "sudoku", "minigolf"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
   if (game === "wii-sandbox" && !phoneOnly) wiiEnsureLoop();
   else wiiMaybeGoHome(game);   // left Wii on the https twin? go back to :8000
@@ -2331,6 +2334,7 @@ async function pollState() {
     }
     if (s.game === "bs") BSView.render($("bs"), s, pid, send);
     if (s.game === "sudoku") SudokuView.render($("sudoku"), s, pid, send);
+    if (s.game === "minigolf") GolfView.render($("minigolf"), s, pid, send);
     renderPhoneResults(s);
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -2340,6 +2344,7 @@ async function pollState() {
 function s_poll_delay() {
   if (currentGame === "bs") return 350;
   if (currentGame === "sudoku") return 400;
+  if (currentGame === "minigolf") return 400;
   if (currentGame === "scattergories" && scPhase === "review") return 700;
   if (currentGame === "taboo" && (tbPhase === "turn" || tbPhase === "ready")) return 350;
   if (currentGame === "blackbox" && bbPhase === "judge") return 350;

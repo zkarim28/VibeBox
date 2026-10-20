@@ -3,7 +3,7 @@ globalThis.PhoneHost = (() => {
   const enabled = /^\/host\/play\/?$/.test(location.pathname);
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let getPid = () => null, latest = null, games = [], formKey = '', busy = false;
+  let getPid = () => null, latest = null, games = [], settingsHTML = '', queue = Promise.resolve(), inflight = 0;
   const messages = {
     not_host: 'Unlock host controls again to continue.', need_players: 'More players need to join first.',
     need_3: 'BlackBox needs at least 3 players.', need_teams: 'Codenames needs at least 2 players on each team.',
@@ -34,16 +34,16 @@ globalThis.PhoneHost = (() => {
     return `<button type="button" data-command="${esc(JSON.stringify({action, ...extra}))}"${danger ? ' data-confirm="true" class="ph-danger"' : ''}>${esc(label)}</button>`;
   }
   function number(label, action, key, value, min, max) {
-    return `<form class="ph-setting" data-setting="${action}" data-key="${key}"><label>${esc(label)}<input name="value" type="number" value="${value}" min="${min}" max="${max}" required inputmode="numeric"></label><button>Save</button></form>`;
+    return `<form class="ph-setting" data-setting="${action}" data-key="${key}"><label>${esc(label)}<input name="value" type="number" value="${value}" min="${min}" max="${max}" required inputmode="numeric" enterkeyhint="done"></label></form>`;
   }
   function toggle(label, action, key, value) {
     return `<label class="ph-toggle"><input type="checkbox" data-toggle="${action}" data-key="${key}"${value ? ' checked' : ''}>${esc(label)}</label>`;
   }
   function choice(label, action, key, value, options) {
-    return `<form class="ph-setting" data-setting="${action}" data-key="${key}"><label>${esc(label)}<select name="value">${Object.entries(options).map(([v, t]) => `<option value="${esc(v)}"${v === value ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label><button>Save</button></form>`;
+    return `<form class="ph-setting" data-setting="${action}" data-key="${key}"><label>${esc(label)}<select name="value">${Object.entries(options).map(([v, t]) => `<option value="${esc(v)}"${v === String(value) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label></form>`;
   }
   function textSetting(label, key, value) {
-    return `<form class="ph-setting" data-setting="tabooSet" data-key="${key}"><label>${label}<input name="value" value="${esc(value)}" maxlength="16" required></label><button>Save</button></form>`;
+    return `<form class="ph-setting" data-setting="tabooSet" data-key="${key}"><label>${label}<input name="value" value="${esc(value)}" maxlength="16" required enterkeyhint="done"></label></form>`;
   }
   function gameData(s) {
     return s[{'scattergories':'scat', 'wii-sandbox':'wii', 'word-hunt':'wordhunt'}[s.game] || s.game] || {};
@@ -62,7 +62,21 @@ globalThis.PhoneHost = (() => {
       case 'word-hunt': return number('Round length (seconds)', 'whSet', 'seconds', g.seconds, 30, 300);
       case 'wii-sandbox': return '<p>Phone mode uses touch Target Practice. Everyone races to tap their own six targets; no motion sensors or shared display needed.</p>';
       case 'bs': return g.phase === 'lobby' ? number('Decks (1 or 2)', 'bsSet', 'decks', g.decks, 1, 2) : '<p>Finish the deal to change decks.</p>';
-      case 'sudoku': return choice('Mode', 'sdSet', 'mode', g.mode, {competitive:'Competitive', coop:'Co-op', zen:'Zen'}) + choice('Difficulty', 'sdSet', 'difficulty', g.difficulty, {easy:'Easy', medium:'Medium', advanced:'Advanced', hard:'Hard', expert:'Expert'}) + (g.bank ? `<p>${g.bank[g.difficulty].fresh} of ${g.bank[g.difficulty].total} boards at this level are new to everyone here.</p>` : '');
+      case 'sudoku': return choice('Mode', 'sdSet', 'mode', g.mode, {competitive:'Competitive', coop:'Co-op', zen:'Zen'}) + choice('Difficulty', 'sdSet', 'difficulty', g.difficulty, {easy:'Easy', medium:'Medium', advanced:'Advanced', hard:'Hard', expert:'Expert'}) + (g.mode === 'competitive' ? choice('Boards', 'sdSet', 'boards', g.boards, {same:'Everyone races the same board', each:'Each player gets a random board'}) : '') + (g.mode !== 'zen' ? choice('Mistakes', 'sdSet', 'lives', g.lives, {0:'Unlimited (time penalty)', 3:'3 lives — out on the 3rd'}) : '') + (g.bank ? `<p>${g.bank[g.difficulty].fresh} of ${g.bank[g.difficulty].total} boards at this level are new to everyone here.</p>` : '');
+      case 'minigolf': {
+        const c = g.cfg || {}, on = new Set(c.obstacles || []);
+        let out = choice('Format', 'mgSet', 'format', c.format, {solo:'Solo (every player for themselves)', best:'Teams: best ball', alternate:'Teams: alternate shot'})
+          + choice('Holes', 'mgSet', 'holes', c.holes, {9:'9 holes', 18:'18 holes'})
+          + choice('Stroke limit', 'mgSet', 'limit', c.limit, {6:'6 (mercy rule)', 8:'8', 10:'10'})
+          + choice('Pace', 'mgSet', 'pace', c.pace, {turns:'Take turns (official order)', together:'Everyone at once (fast)'})
+          + choice('After the tee', 'mgSet', 'order', c.order, {far:'Farthest from the cup goes next', near:'Closest to the cup goes next'});
+        if (c.format !== 'solo') out += choice('Teams', 'mgSet', 'teams', c.teams, {2:'2 teams', 3:'3 teams', 4:'4 teams'}) + button('mgShuffle', '🔀 Shuffle teams');
+        if (c.pace === 'turns') out += choice('Group size', 'mgSet', 'groupSize', c.groupSize, {4:'Up to 4 per group', 5:'Up to 5 per group'});
+        out += choice('Obstacles', 'mgSet', 'obsMode', c.obsMode, {chosen:'Only the ones ticked below', surprise:'Surprise me (random every hole)'})
+          + choice('How many per hole', 'mgSet', 'amount', c.amount, {few:'A few', some:'Some', lots:'Lots'});
+        if (c.obsMode === 'chosen') out += button('mgRandomObs', '🎲 Random obstacle pick') + (g.obstacles || []).map(o => toggle(`${o.emoji} ${o.name}: ${o.blurb}`, 'mgSet', 'obs:' + o.id, on.has(o.id))).join('');
+        return out;
+      }
       case 'ludo': return '<p>The first four players get seats. Everyone sees the board on their phone.</p>';
       default: return '<p>Choose a game to configure it.</p>';
     }
@@ -127,9 +141,15 @@ globalThis.PhoneHost = (() => {
         if (['lobby','gameover'].includes(ph)) out += button('bsStart','Deal & start');
         if (ph !== 'lobby') out += button('bsLobby','Return to lobby',{},true);
         break;
+      case 'minigolf':
+        if (['lobby','done'].includes(ph)) out += button('mgStart', ph === 'done' ? 'Play a new course' : 'Tee off ⛳');
+        if (ph === 'playing') out += button('mgSkip', 'Pick up for the player who\'s up') + button('mgEnd', 'End game', {}, true);
+        if (ph === 'hole') out += button('mgNext', 'Next hole now') + button('mgEnd', 'End game', {}, true);
+        if (ph === 'done') out += button('mgLobby', 'Change settings');
+        break;
       case 'sudoku':
         if (['lobby','done'].includes(ph)) out += button('sdStart', ph === 'done' ? 'Play again' : 'Start');
-        if (ph === 'playing') out += button('sdEnd', g.mode === 'zen' ? 'End Zen session' : 'End round', {}, true);
+        if (ph === 'playing') out += button('sdPause', g.paused ? '▶ Resume' : '⏸ Pause', {value: !g.paused}) + button('sdEnd', g.mode === 'zen' ? 'End Zen session' : 'End round', {}, true);
         if (ph === 'done') out += button('sdLobby', 'Change mode / difficulty');
         break;
       case 'ludo':
@@ -152,22 +172,30 @@ globalThis.PhoneHost = (() => {
     const g = gameData(s), title = games.find(g=>g.id===s.game)?.name || 'Choose a game';
     $('ph-current').textContent = `${title}${g.phase ? ' · ' + g.phase : ''}`;
     $('ph-count').textContent = `${s.players.length} players joined${getPid() ? '' : ' · Join in Play to take your seat'}`;
-    const key = `${s.game}:${g.phase}:${s.phoneMode}`;
-    if (formKey !== key) { $('ph-settings').innerHTML = settings(s); formKey = key; }
+    // Rebuild settings only when the server's values change, and never under
+    // the host's finger (an open dropdown or a number being typed).
+    const sHTML = settings(s), box = $('ph-settings');
+    const editing = box.contains(document.activeElement) && document.activeElement.matches('select, textarea, input:not([type=checkbox])');
+    if (sHTML !== settingsHTML && !inflight && !editing) { box.innerHTML = sHTML; settingsHTML = sHTML; }
     const html = controls(s);
     if ($('ph-actions').innerHTML !== html) $('ph-actions').innerHTML = html;
     const roster = s.players.map(p=>`<div class="ph-player"><span>${esc(p.name)}${p.pid===getPid() ? ' (you)' : ''}${p.connected===false ? ' · reconnecting' : ''}</span>${s.game==='mafia' && g.phase==='lobby' ? button('mafiaSetModerator',g.moderatorPid===p.pid ? 'Moderator ✓' : 'Make moderator',{pid:p.pid}) : ''}${p.pid!==getPid() ? button('kick','Remove',{pid:p.pid},true) : ''}</div>`).join('');
     if ($('ph-roster').innerHTML !== roster) $('ph-roster').innerHTML = roster;
     if (document.activeElement !== $('ph-game')) $('ph-game').value = s.game || '';
   }
-  async function run(work) {
-    if (busy) return;
-    busy = true; $('ph-error').textContent = '';
-    $('ph-panel').setAttribute('aria-busy', 'true');
-    $('ph-panel').querySelectorAll('button, input, select').forEach(el => el.disabled = true);
-    try { await work(); await refresh(); }
-    catch(e) { $('ph-error').textContent = e.message || 'Connection lost. Try again.'; }
-    finally { busy = false; $('ph-panel').removeAttribute('aria-busy'); $('ph-panel').querySelectorAll('button, input, select').forEach(el => el.disabled = false); }
+  // Actions run one after another (never dropped). Only the control that was
+  // used is marked busy while its request is in flight; the rest stay usable.
+  function run(work, el) {
+    if (el && el.dataset.pending) return queue;
+    if (el) { el.dataset.pending = '1'; el.classList.add('ph-pending'); }
+    inflight++;
+    queue = queue.then(async () => {
+      $('ph-error').textContent = '';
+      try { await work(); refresh().catch(()=>{}); }
+      catch(e) { $('ph-error').textContent = e.message || 'Connection lost. Try again.'; settingsHTML = ''; }
+      finally { inflight--; if (el) { delete el.dataset.pending; el.classList.remove('ph-pending'); } }
+    });
+    return queue;
   }
   async function refresh() {
     const id = getPid();
@@ -215,10 +243,16 @@ globalThis.PhoneHost = (() => {
     const share = async()=>{try{const w=await request('/whoami');$('ph-link').value=w.playUrl;$('ph-code').textContent=w.code;const image=$('ph-qr');if(image.dataset.url!==w.playUrl){image.src='/phoneQR.png?v='+Date.now();image.dataset.url=w.playUrl}}catch(e){$('ph-error').textContent=e.message}};
     await share(); setInterval(share,10000);
     $('ph-copy').onclick=()=>run(async()=>{try{await navigator.clipboard.writeText($('ph-link').value);$('ph-copy').textContent='Copied!'}catch(e){$('ph-link').focus();$('ph-link').select();$('ph-error').textContent='Select and copy the player link above.'}});
-    $('ph-game').onchange=()=>run(async()=>{const game=$('ph-game').value||null;if(latest?.game && game!==latest.game && !confirm('Changing games ends the current game. Continue?')){$('ph-game').value=latest.game;return}await request('/select',{game});formKey=''});
-    $('ph-panel').addEventListener('click',e=>{const b=e.target.closest('[data-command]');if(!b)return;if(b.dataset.confirm && !confirm(b.textContent+'?'))return;const {action:name,...extra}=JSON.parse(b.dataset.command);run(()=>action(name,extra))});
-    $('ph-panel').addEventListener('submit',e=>{const f=e.target.closest('[data-setting]');if(!f)return;e.preventDefault();const input=f.elements.value;run(async()=>{await action(f.dataset.setting,{key:f.dataset.key,value:input.type==='number'?Number(input.value):input.value});formKey=''})});
-    $('ph-panel').addEventListener('change',e=>{const input=e.target.closest('[data-toggle]');if(input)run(()=>action(input.dataset.toggle,{key:input.dataset.key,value:input.checked}))});
+    $('ph-game').onchange=()=>run(async()=>{const game=$('ph-game').value||null;if(latest?.game && game!==latest.game && !confirm('Changing games ends the current game. Continue?')){$('ph-game').value=latest.game;return}await request('/select',{game});settingsHTML=''},$('ph-game'));
+    $('ph-panel').addEventListener('click',e=>{const b=e.target.closest('[data-command]');if(!b)return;if(b.dataset.confirm && !confirm(b.textContent+'?'))return;const {action:name,...extra}=JSON.parse(b.dataset.command);run(()=>action(name,extra),b)});
+    // Settings save the moment they change: dropdowns on pick, numbers/text
+    // when you leave the field or press Done.
+    const save=f=>{const input=f.elements.value;if(!input.checkValidity()){input.reportValidity();return}
+      const value=input.type==='number'?Number(input.value):input.value;
+      run(()=>action(f.dataset.setting,{key:f.dataset.key,value}));
+      if(input.tagName==='SELECT')input.blur()};
+    $('ph-panel').addEventListener('submit',e=>{const f=e.target.closest('[data-setting]');if(!f)return;e.preventDefault();e.target.querySelector('input')?.blur()});
+    $('ph-panel').addEventListener('change',e=>{const f=e.target.closest('[data-setting]');if(f){save(f);return}const input=e.target.closest('[data-toggle]');if(input)run(()=>action(input.dataset.toggle,{key:input.dataset.key,value:input.checked}))});
     await refresh();
     setInterval(()=>{if(!getPid())refresh().catch(()=>{})},1000);
     return auth.code;

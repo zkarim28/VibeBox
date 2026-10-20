@@ -516,7 +516,19 @@ co-op counts them for the team, Zen is free. Hints are logged in the history.
 
 Tap a cell, then a number. **✎ Notes** pencils in candidates (kept on your
 phone, and cleared automatically when a digit is placed nearby). Keyboards
-work too: arrows, 1–9, Backspace, N for notes.
+work too: arrows, 1–9, Backspace, N for notes, H for a hint, P to pause (host or
+table owner). The letters are printed on the buttons.
+
+**Rules** (host's phone settings, the table owner's lobby, or the open page's
+start forms; each saves the moment you pick it):
+
+- **Boards** (Competitive): everyone races the same board, or each player
+  gets their own random board at the chosen level.
+- **Mistakes**: unlimited (each wrong digit adds 30 s), or **3 lives**: your
+  3rd wrong digit knocks you out of the race (you can still watch). In Co-op
+  the team shares 3 lives and the round ends when they run out.
+- **⏸ Pause** (host / table owner, during a round): stops the clock for
+  everyone and hides the boards until resumed.
 
 **Where the boards come from.** Puzzles are generated locally by
 `sudoku_puzzles.py`, not scraped or copied from books. Every board has exactly
@@ -540,6 +552,47 @@ longest ago, reshuffled. The shared screen lists recent plays; for the full
 log:
 
     python3 sudoku.py --history
+
+## Mini Golf
+
+Top-down 2D putt-putt on a generated pirate-cove course (9 or 18 holes). Every
+phone shows the hole; the shared screen shows it big with the leaderboard.
+
+**Putting:** when it's your shot, drag back from anywhere on the course like a
+slingshot and let go (farther = harder). Keyboard: ← → aim, ↑ ↓ power, Space.
+
+**Rules** (Smugglers Cove / Lost Treasure house rules): holes in order; everyone
+tees off before anyone takes a second stroke, then the ball **farthest** from
+the cup goes next (or closest, as a house-rule setting); on later holes the best
+score on the previous hole tees off first. **Stroke limit** 6 (or 8/10): reach
+it without sinking and the ball is picked up with the limit. **Water, sand,
+the kraken's mouth, out of bounds: +1 stroke** and the ball goes back to where
+it left the course. A ball resting against a rail is moved one clubhead away,
+no penalty. Turn-taking groups hold at most 4 or 5 balls and play side by side;
+"Everyone at once" pace drops turn order for big rooms. Lowest total wins.
+
+**Formats:** Solo; Teams: best ball (each player plays a ball, the team scores
+its best one per hole); Teams: alternate shot (one ball per team, teammates take
+turns). Players pick teams on their phones; the host can shuffle.
+
+**Obstacles** (tick any mix, 🎲 random pick, or "Surprise me" for a random mix
+every hole; and how many per hole):
+
+| | Obstacle | What it does |
+|---|---|---|
+| 🌬️ | Ye Olde Windmill | Spinning blades guard the way |
+| 🦈 | Shark Lagoon | Water hazard, +1 |
+| 🏖️ | Sandy Bottoms | Sand trap, +1 |
+| 🛢️ | Boing Barrels | Bouncy bumpers that kick the ball away faster |
+| ⛰️ | Sneaky Slopes | Hills that bend the putt downhill |
+| 🕳️ | Treasure Tunnels | Drop into one hole, pop out the other |
+| ⏩ | Turbo Arrows | Speed pads |
+| 🚪 | Drawbridge | A sliding gate that opens and closes |
+| 🧊 | Slip 'n' Slide | Ice: the ball barely slows |
+| 🐙 | Kraken Whirlpool | Pulls the ball in; its mouth swallows it (+1) |
+
+Every hole is checked for a ball-sized path from tee to cup before it's used.
+Late arrivals can join from the current hole (missed holes count as the limit).
 
 ## BS (Bullshit / Cheat)
 

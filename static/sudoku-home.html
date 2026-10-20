@@ -73,6 +73,7 @@
       <div class="row">
         <label>Mode<select id="solo-mode"><option value="zen">Zen (no clock)</option><option value="competitive">Time trial</option></select></label>
         <label>Difficulty<select id="solo-level"></select></label>
+        <label id="solo-lives-wrap" hidden>Mistakes<select id="solo-lives"><option value="0">Unlimited (+30s each)</option><option value="3">3 lives</option></select></label>
         <button class="btn" type="button" id="solo-go">Play now</button>
       </div>
     </div>
@@ -83,6 +84,10 @@
         <label style="flex:1 1 180px">Table name<input id="t-name" type="text" maxlength="32" placeholder="optional"></label>
         <label>Mode<select id="t-mode"><option value="competitive">Competitive</option><option value="coop">Co-op</option><option value="zen">Zen</option></select></label>
         <label>Difficulty<select id="t-level"></select></label>
+      </div>
+      <div class="row">
+        <label id="t-boards-wrap">Boards<select id="t-boards"><option value="same">Everyone races the same board</option><option value="each">Each player gets a random board</option></select></label>
+        <label id="t-lives-wrap">Mistakes<select id="t-lives"><option value="0">Unlimited (time penalty)</option><option value="3">3 lives — out on the 3rd</option></select></label>
       </div>
       <div class="row" style="justify-content:space-between">
         <label class="check"><input type="checkbox" id="t-listed" checked> List it under open tables</label>
@@ -205,8 +210,15 @@ $('name-form').onsubmit = async e => {
   if (tid) show('table'); else if (want) enter(want); else show('lobby');
 };
 $('rename').onclick = () => { $('name').value = me ? me.name : ''; show('name'); $('name').focus(); };
-$('solo-go').onclick = () => create($('solo-mode').value, $('solo-level').value, {start: true, listed: false, name: `${me.name}'s solo board`});
-$('t-go').onclick = () => create($('t-mode').value, $('t-level').value, {name: $('t-name').value, listed: $('t-listed').checked});
+$('solo-go').onclick = () => create($('solo-mode').value, $('solo-level').value, {start: true, listed: false, name: `${me.name}'s solo board`, lives: +$('solo-lives').value});
+$('t-go').onclick = () => create($('t-mode').value, $('t-level').value, {name: $('t-name').value, listed: $('t-listed').checked, boards: $('t-boards').value, lives: +$('t-lives').value});
+const syncRuleFields = () => {
+  $('solo-lives-wrap').hidden = $('solo-mode').value === 'zen';
+  $('t-boards-wrap').hidden = $('t-mode').value !== 'competitive';
+  $('t-lives-wrap').hidden = $('t-mode').value === 'zen';
+};
+$('solo-mode').onchange = $('t-mode').onchange = syncRuleFields;
+syncRuleFields();
 $('tables').onclick = e => { const b = e.target.closest('[data-join]'); if (b) enter(b.dataset.join); };
 $('leave').onclick = async () => { clearTimeout(pollTimer); await api('leave'); tid = null; setUrl(null); show('lobby'); };
 $('listed').onchange = () => send('sdListed', {value: $('listed').checked});
