@@ -157,13 +157,13 @@ def _push_message(links):
     url = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
     code = links.get("code", "")
     host = f"{url}/host/play"
-    play = f"{url}/{code}" if code else f"{url}/play"
+    play = f"{url}/play"
     public = links.get("public", True)
     mode = "Public game" if public else "Local game — join on the same WiFi"
     computer = links.get("source") or socket.gethostname()
     text = (f"VibeBox is ready on {computer}.\n{mode}\n\n"
             f"Host & play (host password required):\n{host}\n\n"
-            f"Players join:\n{play}\n\nRoom code: {code}\n\n"
+            f"Players join:\n{play}\n\n"
             f"Sudoku, open to anyone (no password):\n{url}/sudoku")
     return text, host, play
 
@@ -195,7 +195,7 @@ def _compose(links):
         f"HOST (your browser, one-click):\n    {host_you}\n\n"
         f"HOST (any other machine, then the password):\n    {host_other}\n\n"
         f"PLAYERS join at:\n    {play}\n\n"
-        f"Room code: {code}\nTunnel:    {url}\n"
+        f"Tunnel:    {url}\n"
     )
     return sms_text, email_text
 

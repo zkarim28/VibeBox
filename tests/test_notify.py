@@ -26,9 +26,10 @@ class NotificationTests(unittest.TestCase):
             'source': 'my-computer', 'public': False,
         })
         self.assertEqual(host, 'https://game.example/host/play')
-        self.assertEqual(play, 'https://game.example/ABCD')
-        for expected in ('my-computer', 'same WiFi', 'ABCD', host, play):
+        self.assertEqual(play, 'https://game.example/play')
+        for expected in ('my-computer', 'same WiFi', host, play):
             self.assertIn(expected, text)
+        self.assertNotIn('ABCD', text)      # no room codes any more
         self.assertNotIn('secret', text)
         self.assertNotIn('private', text)
 

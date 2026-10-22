@@ -92,6 +92,101 @@ class PhysicsTests(unittest.TestCase):
         self.assertLess(r["end"][1], 30)
 
 
+class NewStuffTests(unittest.TestCase):
+    def test_trampoline_launches_the_ball_over_water(self):
+        tramp = {"k": "tramp", "x": 40, "y": 95, "r": 3.2}
+        water = {"k": "water", "x": 31.2, "y": 71.2, "w": 17.6, "h": 7.6}
+        h = straight_hole([tramp, water])
+        r = mg.simulate(h, h["tee"], aim(h, h["tee"]), .5, 0)
+        self.assertTrue(any(len(f) == 3 and f[2] > 3 for f in r["frames"]))     # it got some height
+        self.assertTrue(any(e["k"] == "tramp" for e in r["events"]))
+        self.assertEqual(r["penalty"], 0)                                      # flew over the lagoon
+        self.assertLess(r["end"][1], 71)
+
+    def test_coins_combo_and_points(self):
+        players = {1: {"name": "A", "connected": True, "color": "#fff", "score": 0}}
+        g = mg.fresh({"trivia": False})
+        mg.act(g, players, None, "mgStart", {})
+        hole = straight_hole([{"k": "bumpers", "b": [[40, 70, 2.3]]}])
+        hole["coins"] = [[40.0, 90.0], [40.0, 80.0]]
+        g["holes"][0] = hole
+        mg._begin_hole(g, 0)
+        err, extra = mg.act(g, players, 1, "mgShot", {"angle": -math.pi / 2, "power": .6})
+        self.assertIsNone(err)
+        ev = [e for e in extra["shot"]["events"] if e.get("pts")]
+        self.assertGreaterEqual(len(ev), 3)                                    # two coins + the barrel
+        self.assertEqual([e["mult"] for e in ev[:3]], [1, 2, 3])
+        self.assertEqual(set(g["coinsTaken"]), {"0", "1"})
+        self.assertEqual(g["sides"]["p1"]["points"], sum(e["pts"] for e in ev))
+        # coins are gone for the next shot
+        left = [i for i, _ in enumerate(hole["coins"]) if str(i) not in g["coinsTaken"]]
+        self.assertEqual(left, [])
+
+    def test_trivia_hole_putt_into_the_right_answer(self):
+        players = {i: {"name": f"P{i}", "connected": True, "color": "#fff", "score": 0} for i in (1, 2)}
+        g = mg.fresh({"trivia": 1, "obstacles": []})
+        mg.act(g, players, None, "mgStart", {})
+        for s_ in g["sides"].values():
+            s_.update(state="in", until=0)
+            s_["scores"].append(2)
+        mg.tick(g, players)
+        self.assertEqual(g["phase"], "hole")
+        g["nextAt"] = 1
+        mg.tick(g, players)
+        self.assertEqual(g["phase"], "trivia")
+        tv = g["trivia"]
+        hole = tv["hole"]
+        hole["obs"], hole["coins"] = [], []
+        self.assertEqual(len(hole["cups"]), 4)
+        pub = mg.public(g, players, 1)
+        self.assertIsNone(pub["trivia"]["correct"])
+        self.assertTrue(pub["me"]["canShoot"])
+        def putt_into(cup_i):
+            tee, cup = hole["tee"], hole["cups"][cup_i]
+            a = math.atan2(cup[1] - tee[1], cup[0] - tee[0])
+            for p in [x / 100 for x in range(50, 95)]:
+                r = mg.simulate(hole, tee, a, p, 0)
+                if r["sunk"] and r["cup"] == cup_i:
+                    return a, p
+            self.fail(f"couldn't find a putt into cup {cup_i}")
+        a, p = putt_into(tv["correct"])
+        self.assertIsNone(mg.act(g, players, 1, "mgShot", {"angle": a, "power": p})[0])
+        wrong = (tv["correct"] + 1) % 4
+        a2, p2 = putt_into(wrong)
+        self.assertIsNone(mg.act(g, players, 2, "mgShot", {"angle": a2, "power": p2})[0])
+        self.assertEqual(g["sides"]["p1"]["points"], 0)          # nothing until the reveal
+        self.assertIsNone(mg.public(g, players, 1)["trivia"]["results"][0]["choice"])
+        for s_ in g["sides"].values():
+            s_["until"] = 0
+        mg.tick(g, players)
+        self.assertEqual(g["phase"], "treveal")
+        self.assertEqual(g["sides"]["p1"]["points"], mg.trivia_points(1))
+        self.assertEqual(g["sides"]["p2"]["points"], 0)
+        self.assertEqual(g["sides"]["p1"]["scores"], [2])         # trivia holes don't add strokes
+        self.assertEqual(mg.public(g, players, 2)["trivia"]["correct"], tv["correct"])
+        g["nextAt"] = 1
+        mg.tick(g, players)
+        self.assertEqual((g["phase"], g["hole"]), ("playing", 1))
+
+    def test_trivia_hole_is_playable_to_every_cup(self):
+        for seed in range(15):
+            h = mg.make_trivia_hole(random.Random(seed), mg.OBS_IDS, "neon")
+            idx = mg._index([tuple(w) for w in h["walls"]])
+            cells = {tuple(c) for c in h["cells"]}
+            for cup in h["cups"]:
+                self.assertIsNotNone(mg._path_len(cells, idx, h["obs"], h["tee"], cup), (seed, cup))
+
+    def test_every_world_and_shape_generates(self):
+        for theme in mg.THEME_CHOICES:
+            name, holes = mg.make_course(dict(mg.DEFAULTS, holes=18, theme=theme), seed=2)
+            self.assertTrue(all(h["theme"] in mg.THEMES for h in holes))
+            self.assertTrue(all(len(h["coins"]) >= 1 for h in holes))
+        shapes = set()
+        for seed in range(12):
+            shapes |= {h["shape"] for h in mg.make_course(dict(mg.DEFAULTS, holes=18), seed=seed)[1]}
+        self.assertTrue({"snake", "stairs", "ring", "cross"} <= shapes, shapes)
+
+
 class GameTests(unittest.TestCase):
     def setUp(self):
         self.players = {i: {"name": f"P{i}", "connected": True, "color": "#fff", "score": 0} for i in (1, 2, 3)}
@@ -184,6 +279,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual([(r["name"], r["total"]) for r in rows], [("Red Parrots", 2), ("Blue Sharks", 3)])
 
     def test_finish_ranks_lowest_and_awards_points(self):
+        self.act(None, "mgSet", key="trivia", value=0)
         self.act(None, "mgStart")
         for sid, sc in (("p1", 30), ("p2", 25), ("p3", 40)):
             self.g["sides"][sid]["scores"] = [sc // 9] * 9

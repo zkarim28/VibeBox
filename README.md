@@ -78,17 +78,15 @@ Without them the server still runs — Local mode, terminal only.
 
 ### Short join links
 
-Players don't need the long `/play?code=WXYZ` URL. The **room code is the whole
-path** now:
+There are **no room codes**: anyone with the link types a name and joins.
 
 | Link | Goes to |
 |------|---------|
-| `<addr>/WXYZ` | join screen with the code filled in |
-| `<addr>/j/WXYZ` | same (explicit form) |
-| `<addr>/join` or just `<addr>/` | join screen, type the code yourself |
+| `<addr>/` , `<addr>/play` , `<addr>/join` | join screen (just a name) |
 | `<addr>/host` | the laptop screen (then the host password) |
+| `https://zkarim28.github.io/vibebox/` | permanent link — forwards to the current tunnel (see `deploy/publish-link.sh` in ARCHITECTURE.md) |
 
-The join QR encodes the short form too. `<addr>` is your LAN address, the
+The join QR encodes `<addr>/play`. `<addr>` is your LAN address, the
 Cloudflare URL, or your own domain (below).
 
 ### Your own domain (e.g. `vibebox.tv`)
@@ -125,8 +123,8 @@ Set `NOTIFY_WEBHOOK=https://ntfy.sh/your-long-random-topic` in the git-ignored
 `.env` file (see `.env.example`). Subscribe to that same topic in the ntfy app
 on your phone and allow notifications. Keep the randomly named topic private.
 
-Every server startup sends the **Host & play** link, guest join link, room code,
-and computer name. Tap the notification to open the phone host; your host
+Every server startup sends the **Host & play** link, guest join link and
+computer name. Tap the notification to open the phone host; your host
 password is still required. Push messages never include the host unlock token.
 This works from the terminal, desktop window, and launcher, including a fixed
 `PUBLIC_URL`. Local starts send a link labelled for the same WiFi network;
@@ -326,7 +324,7 @@ build). It asks **Local or Public**, then shows:
 
 - the **host link** with an *Open in browser* button (one click to unlock the
   laptop screen),
-- the **players-join link** + **room code**,
+- the **players-join link**,
 - the join **QR**,
 - a **Quit** button.
 
@@ -341,9 +339,7 @@ falls back to the terminal prompt.
 1. **Open the host link** (button in the window, or the terminal link). It sets
    a cookie — that browser is now the "host". Any browser without the cookie
    sees a "screen locked" page, so a stray player can't hijack the game.
-2. Players scan the QR, or type the short link **`<addr>/<room code>`** (the code
-   is the path), then a name and **Join**. Plain **`<addr>/`** works too — they
-   just enter the code by hand.
+2. Players scan the QR or open **`<addr>/`**, type a name and **Join**.
 3. On the laptop, pick a game. Players' phones switch to that controller.
 4. For phone-only play, choose **Host & play on this phone** and use the
    **Play / Host controls** tabs.
@@ -364,8 +360,8 @@ tunnel fails, the window offers "Run Local instead".
 Skip the choice with `MODE=local` or `MODE=public`. Or point at a tunnel you
 started yourself with `PUBLIC_URL=https://… python3 server.py`.
 
-Anyone joining needs **both** the link **and** the room code; the laptop screens
-still require the host cookie. Read the security notes below before doing this.
+Anyone with the link can join as a player; the laptop screens and host controls
+still require the host cookie / password. Read the security notes below before doing this.
 
 Env knobs: `MODE` (local|public), `GUI` (0 to disable the window), `PUBLIC_URL`,
 `PORT` (8000), `ROOM_CODE` (default random), `HOST_TOKEN` (default random — set it
@@ -383,17 +379,18 @@ for a stable host bookmark), `MAX_PLAYERS` (12), `JOIN_MAX` (15 join attempts / 
 | `scattergories.py` | Category pool, letter set, and the pure scoring / alliteration helpers. |
 | `taboo.py` | The ~145-card Taboo deck + a shuffle helper. |
 | `GET /` → `static/menu.html` | The games menu (host only). A non-host request 302s to `/play`, so a player can type the bare domain. Lists games from `GET /games`. |
-| `GET /<code>`, `/j/<code>`, `/join` | 302 → `/play?code=<code>` — the short player links. `<code>` must match the room code (a mismatch 404s). |
+| `GET /join`, `/j`, `/go` | 302 → `/play`. (Old `/<code>` links still redirect while that run's internal id matches.) |
+| `GET /ping` | `ok`, with `Access-Control-Allow-Origin: *` — the github.io forwarding page's liveness check. |
 | `GET /host` → `static/host.html` | The game screen. One shell, a view per game, switched by `state["game"]`. Polls `/state` ~2×/second for updates (SSE didn't survive the Cloudflare tunnel). |
 | `GET /host/play` → `static/controller.html` + `static/phone-host.js` | Password-protected host-player setup, private player view, and a separate host-controls tab. |
 | `GET /play` → `static/controller.html` | The phone controller. One shell: "waiting" screen, then the current game's controls. |
 | `GET /?host=<token>` | Sets the host cookie (302 → clean path). Any laptop screen needs this cookie or it shows "locked". |
 | `GET /amihost` | `{host: bool, code}` from the request's cookie — the menu/host pages use it to lock themselves. |
 | `GET /games` | The game catalog (`GAMES` in `server.py`). |
-| `GET /whoami` | *(host only)* The public/LAN phone URL + room code. |
-| `GET /phoneQR.png` | *(host only)* QR of the join URL (carries `?code=`). Regenerates when the address changes. |
+| `GET /whoami` | *(host only)* The public/LAN phone URL (`code` is now only an internal per-run id). |
+| `GET /phoneQR.png` | *(host only)* QR of the join URL. Regenerates when the address changes. |
 | `POST /select` | *(host only)* `{game}` — pick a game (or `null` for the menu). |
-| `POST /join` | `{name, code}` — code must match; rate-limited per IP; capped at `MAX_PLAYERS`. Returns `pid` + color or `{error}`. |
+| `POST /join` | `{name}` — no code needed; rate-limited per IP; capped at `MAX_PLAYERS`. Returns `pid` + color or `{error}`. |
 | `POST /input` | `{pid, token, action, ...}` for player actions. Host controls require the host cookie (`HOST_ONLY` and role-aware game handlers). `hostMode` changes the room setup between `phone` and `screen`. |
 | `GET /state?pid=<id>` | Latest private player state, authenticated with `X-Player-Token`; host-cookie requests can read the shared view without a player ID. Polling also refreshes the player's heartbeat. |
 | `GET /events` | *(host only)* legacy SSE stream — unused now (the host polls). |
@@ -406,7 +403,7 @@ their seat for `PLAYER_GRACE` (90s). Closing/navigating the controller sends a
 
 ## Joining and phone results
 
-The host game screen keeps a shared joining QR, room code, and link visible
+The host game screen keeps a shared joining QR and link visible
 throughout every game phase. It uses a side panel on large displays and a
 sticky banner on smaller screens.
 
@@ -460,19 +457,19 @@ What's protected:
 - **Laptop screens** (`/`, `/host`, `/whoami`, QR, `/events`, `/select`, all
   host game controls) need the host cookie, set only by opening the printed
   `?host=<token>` link. A random visitor gets a "locked" page.
-- **Joining** needs the room code. `/state` gives nothing useful without the
-  cookie or a valid player ID and token, so a stray link-holder can't even spectate.
-- Rate limit on join attempts (slows room-code guessing) and a hard player cap.
+- **Joining** needs only the link (no room code). Anyone who has it can take a
+  player seat, but never host controls. `/state` gives nothing useful without the
+  cookie or a valid player ID and token.
+- Rate limit on join attempts per IP and a hard player cap; the host can kick.
 
 What's still true:
 
 - The tunnel provider terminates TLS and can see traffic.
-- The room code is 4 chars — fine against casual guessing, not a real secret.
-  Share the link + code only with people you want playing.
+- With no room code, the link is the only thing between strangers and a player
+  seat — and the github.io link is public. The host password guards everything else.
 - It's a hobby `ThreadingHTTPServer`. Don't leave the tunnel up when you're not
   actively playing, and don't treat this as hardened infrastructure.
-- `HOST_TOKEN` regenerates every run unless you set it — so does the room code
-  unless you set `ROOM_CODE`.
+- `HOST_TOKEN` regenerates every run unless you set it.
 
 ## Sudoku
 
@@ -507,7 +504,7 @@ whatever game the room is on:
   anyone who can see the solution (spectators, or racers who already
   finished) stay hidden from players still solving until the round ends.
 - The startup ntfy push includes the `/sudoku` link, and the phone join
-  screen links to it ("No room code? Play Sudoku →").
+  screen links to it ("Just want Sudoku? Play here →").
 
 **💡 Hints** point at the next cell that can be worked out logically and say
 why ("Box 3 has only one spot left for a 1"), then offer to fill it in. In
@@ -590,9 +587,51 @@ every hole; and how many per hole):
 | 🚪 | Drawbridge | A sliding gate that opens and closes |
 | 🧊 | Slip 'n' Slide | Ice: the ball barely slows |
 | 🐙 | Kraken Whirlpool | Pulls the ball in; its mouth swallows it (+1) |
+| ⬆️ | Boing-Boing Trampoline | Launches the ball into the air (it grows as it rises): over hazards, maybe over a rail (out of bounds, +1) |
+| 🌀 | Spin Cycle | A roulette wheel that flings the ball the way its arrow points |
+
+**Worlds:** 🏴‍☠️ Pirate Cove, 🌈 Neon Nights (glow-in-the-dark checkerboard),
+🍭 Sugar Rush, 🌴 Lost Jungle, 🚀 Lunar Links, a random world, or 🌍 Grand Tour
+(a new world every hole). Hole shapes: straight, dogleg, zigzag, U, open arena,
+snake, staircase, ring (two ways round) and cross.
+
+**Two leaderboards: fewest strokes and most points.** Every hole has 🪙 coins
+(+50). Pinball scoring: barrels +25, tunnels +30, trampolines +40, Spin Cycle
++30, turbo arrows +10, and each trick in one shot raises a combo multiplier
+(×2…×5). Sinking it adds a bonus times your combo (ace 500, eagle 300, birdie
+150, par 75, else 25).
+
+**🧠 Trivia holes** (after every hole, every 2nd, every 3rd (default) or off):
+a bonus hole where the question pops up and **every answer is its own cup**, each
+at the end of its own lane. Everyone putts at once with 3 putts to sink into the
+cup they think is right: 250 / 200 / 150 points for 1 / 2 / 3 putts. Answers
+are hidden until the reveal; trivia holes never add to your strokes.
 
 Every hole is checked for a ball-sized path from tee to cup before it's used.
 Late arrivals can join from the current hole (missed holes count as the limit).
+
+## Connect 4
+
+Drop discs, line up four (or five) across, down or diagonally. Tap a column on
+your phone (or press 1–9 on a keyboard). Red always moves first; who gets red is
+random each round.
+
+**Formats** (host picks):
+- **Duels:** everyone is paired up and plays at the same time; the odd one out
+  plays the computer. Rematches pair people who haven't met yet.
+- **Teams:** Red vs Yellow, teammates take turns dropping. Players pick a side
+  on their phones (or the host shuffles); an empty side is the computer.
+- **Everyone vs the computer:** each player gets their own board.
+
+**Settings:** board 6×5 / 7×6 (classic) / 8×7 / 9×7, connect 4 or 5, computer
+Easy / Medium / Hard, optional move clock (15/30/60 s; when it runs out a disc
+is dropped for you). Medium and Hard always block an open four; Hard searches
+several moves ahead and is tough to beat.
+
+The shared screen shows every board at once; phones show their own board (with
+the other games under "Other games"). Standings across rematches: 3 for a win,
+1 for a draw. Room points: 100 a win, 40 a draw, 50/100/200 for beating the
+computer on Easy/Medium/Hard. Leave mid-game and the computer takes your seat.
 
 ## BS (Bullshit / Cheat)
 

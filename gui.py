@@ -497,13 +497,6 @@ class _App(tk.Tk):
         self._label("PLAYERS JOIN AT")
         self._copy_pill(play.split("?")[0], play)
 
-        row = tk.Frame(self.content, bg=CARD)
-        row.pack(anchor="w", pady=(_px(14), _px(2)))
-        tk.Label(row, text="ROOM CODE", bg=CARD, fg=MUTED,
-                 font=(FAM, 10, "bold")).pack(side="left")
-        tk.Label(row, text=self.ctx["room_code"], bg=CARD, fg=ACCENT,
-                 font=(MONO, 22, "bold")).pack(side="left", padx=_px(10))
-
         self._show_qr()
 
         RoundBtn(self.content, "Quit", self.quit_now, kind="ghost",

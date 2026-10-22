@@ -41,6 +41,7 @@ import wordhunt       # local, Word Hunt board generator + dictionary
 import sudoku         # local, Sudoku engine + puzzle bank + play history
 import sudoku_tables  # local, open Sudoku tables for the public /sudoku page
 import minigolf       # local, 2D mini golf: course generator, physics, rules
+import connect4       # local, Connect 4: duels, teams, vs computer
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8000"))
@@ -104,6 +105,7 @@ HOST_ONLY = {
     "bsStart", "bsLobby", "bsSet",
     "sdSet", "sdStart", "sdEnd", "sdLobby", "sdPause",
     "mgSet", "mgRandomObs", "mgShuffle", "mgStart", "mgNext", "mgSkip", "mgEnd", "mgLobby",
+    "c4Set", "c4Shuffle", "c4Start", "c4End", "c4Lobby", "c4Reset",
     "kick", "hostMode",
     "scatStart", "scatSet", "scatEndRound", "scatNext", "scatLobby", "scatResetScores",
     "tabooStart", "tabooSet", "tabooBeginTurn", "tabooEndTurn", "tabooNextTurn",
@@ -209,6 +211,14 @@ GAMES = [
         "players": "1-16 players",
         "status": "ready",
         "emoji": "\N{FLAG IN HOLE}",
+    },
+    {
+        "id": "connect4",
+        "name": "Connect 4",
+        "tagline": "Drop discs, line up four. Everyone duels at once, Red vs Yellow teams, or take on the computer.",
+        "players": "1-20 players",
+        "status": "ready",
+        "emoji": "\N{LARGE RED CIRCLE}",
     },
     {
         "id": "doodle-dash",
@@ -329,10 +339,10 @@ def base_url():
 
 
 def play_url():
-    """The short address a phone joins at — the room code *is* the path, e.g.
-    https://vibebox.tv/WXYZ . GET /<code> 302s to /play?code=<code>, so it's
-    just as zero-friction for a QR scan as the old long form."""
-    return f"{base_url()}/{ROOM_CODE}"
+    """The address a phone joins at. There's no room code to type any more:
+    anyone with the link can join (ROOM_CODE is now only an internal
+    per-run id that phones use to tell old saved seats from new ones)."""
+    return f"{base_url()}/play"
 
 
 def host_url():
@@ -633,6 +643,7 @@ state = {
     "bs": bs.fresh(),
     "sudoku": sudoku.fresh(),
     "minigolf": minigolf.fresh(),
+    "connect4": connect4.fresh(),
 }
 _next_pid = [1]
 # pids the host has kicked — their controller's next /state poll gets
@@ -1263,6 +1274,7 @@ def public_state(for_pid=None):
         "bs": bs.public(state["bs"], state["players"], for_pid) if state["game"] == "bs" else None,
         "sudoku": sudoku.public(state["sudoku"], state["players"], for_pid) if state["game"] == "sudoku" else None,
         "minigolf": minigolf.public(state["minigolf"], state["players"], for_pid) if state["game"] == "minigolf" else None,
+        "connect4": connect4.public(state["connect4"], state["players"], for_pid) if state["game"] == "connect4" else None,
         "game": state["game"],
         "phoneMode": state["phoneMode"],
         "players": players,
@@ -1398,6 +1410,8 @@ def janitor():
                 changed = True
             if state["game"] == "minigolf" and minigolf.tick(state["minigolf"], state["players"]):
                 changed = True
+            if state["game"] == "connect4" and connect4.tick(state["connect4"], state["players"]):
+                changed = True
             # end a Scattergories round when its timer runs out
             scat = state["scat"]
             if (state["game"] == "scattergories" and scat["phase"] == "playing"
@@ -1441,8 +1455,6 @@ def do_join(name, code, ip):
     with _lock:
         if not rate_ok(ip):
             return {"ok": False, "error": "rate_limited"}
-        if (code or "").strip().upper() != ROOM_CODE:
-            return {"ok": False, "error": "bad_code"}
         if len(state["players"]) >= MAX_PLAYERS:
             return {"ok": False, "error": "full"}
         pid = _next_pid[0]
@@ -1500,6 +1512,7 @@ def do_select(game):
         state["bs"] = bs.fresh(state["bs"]["decks"])
         sudoku.act(state["sudoku"], state["players"], None, "sdLobby", {})   # records any open round
         minigolf.act(state["minigolf"], state["players"], None, "mgLobby", {})   # keeps settings and teams
+        state["connect4"] = connect4.fresh(state["connect4"]["cfg"], state["connect4"]["teamOf"])
         # keep the chosen game's settings, drop any in-progress round
         keep = state["scat"]
         state["scat"] = fresh_scat()
@@ -3404,6 +3417,13 @@ def do_input(data, is_host=False):
             broadcast()
             return {"ok": not bool(error), **({"error": error} if error else {})}
 
+        if isinstance(action, str) and action.startswith("c4"):
+            if state["game"] != "connect4":
+                return {"ok": False, "error": "Select Connect 4 first."}
+            error, extra = connect4.act(state["connect4"], state["players"], pid, action, data)
+            broadcast()
+            return {"ok": not bool(error), **extra, **({"error": error} if error else {})}
+
         if isinstance(action, str) and action.startswith("mg"):
             if state["game"] != "minigolf":
                 return {"ok": False, "error": "Select Mini Golf first."}
@@ -3581,8 +3601,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file("sudoku.js", "text/javascript; charset=utf-8")
         elif path == "/minigolf.js":
             self._send_file("minigolf.js", "text/javascript; charset=utf-8")
+        elif path == "/connect4.js":
+            self._send_file("connect4.js", "text/javascript; charset=utf-8")
         elif path == "/results.js":
             self._send_file("results.js", "text/javascript; charset=utf-8")
+        elif path == "/ping":
+            # liveness check for the zkarim28.github.io/vibebox forwarding page,
+            # which fetches this cross-origin before redirecting.
+            body = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
         elif path == "/games":
             catalog = [dict(g, name="Target Practice", tagline="Tap your targets on your phone. First to clear them wins.")
                        if state["phoneMode"] and g["id"] == "wii-sandbox" else g for g in GAMES]
@@ -3631,6 +3664,9 @@ class Handler(BaseHTTPRequestHandler):
                     mine = int(pid) if pid is not None else None
                 except (TypeError, ValueError):
                     mine = None
+                if state["game"] == "connect4":
+                    # bot moves / clocks land within a poll, not a janitor second
+                    connect4.tick(state["connect4"], state["players"])
                 self._send_json(public_state(mine))
         elif path == "/events":
             if not host:
@@ -3855,6 +3891,14 @@ def _notify_startup():
         "host_you": host_url(), "host_other": f"{url}/host",
         "play": play_url(), "source": socket.gethostname(),
     })
+    if PUBLIC_URL and os.environ.get("PUBLISH_LINK", "").lower() in ("1", "yes", "on"):
+        # point zkarim28.github.io/vibebox at this tunnel (background, best effort)
+        try:
+            subprocess.Popen([os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "deploy", "publish-link.sh"), url],
+                             stdin=subprocess.DEVNULL)
+        except OSError as exc:
+            print(f"  publish-link failed to start: {exc}")
 
 
 def _banner(tunnel_on):
@@ -3869,21 +3913,20 @@ def _banner(tunnel_on):
         print(f"      (auto-generated, changes every restart): {HOST_PASSWORD}")
         print("      Set HOST_PASSWORD=... (e.g. in a .env file) for one that stays put.")
     print(line)
-    print(f"  Players join at:   {play_url()}   (the code is in the link)")
-    print(f"  ...or the long way: {base_url()}/play   with room code {ROOM_CODE}")
+    print(f"  Players join at:   {play_url()}")
     print(line)
     if tunnel_on:
-        print("  PUBLIC via Cloudflare tunnel — anyone with the link AND code can join.")
+        print("  PUBLIC via Cloudflare tunnel — anyone with the link can join.")
         print("  Ctrl+C stops the game and the tunnel.")
     elif PUBLIC_URL:
-        print("  PUBLIC MODE (PUBLIC_URL set) — anyone with the link AND code can join.")
+        print("  PUBLIC MODE (PUBLIC_URL set) — anyone with the link can join.")
     else:
         print("  LAN only.  Local host link also works:")
         print(f"      http://localhost:{PORT}/?host={HOST_TOKEN}")
     if HTTPS_OK:
         print(line)
         print("  Phone motion controls (Wii Sandbox) need https — on this LAN use:")
-        print(f"      https://{lan_ip()}:{HTTPS_PORT}/{ROOM_CODE}")
+        print(f"      https://{lan_ip()}:{HTTPS_PORT}/play")
         print("  (accept the one-time self-signed cert warning on the phone)")
     print(line + "\n")
     _notify_startup()

@@ -63,6 +63,15 @@ globalThis.PhoneHost = (() => {
       case 'wii-sandbox': return '<p>Phone mode uses touch Target Practice. Everyone races to tap their own six targets; no motion sensors or shared display needed.</p>';
       case 'bs': return g.phase === 'lobby' ? number('Decks (1 or 2)', 'bsSet', 'decks', g.decks, 1, 2) : '<p>Finish the deal to change decks.</p>';
       case 'sudoku': return choice('Mode', 'sdSet', 'mode', g.mode, {competitive:'Competitive', coop:'Co-op', zen:'Zen'}) + choice('Difficulty', 'sdSet', 'difficulty', g.difficulty, {easy:'Easy', medium:'Medium', advanced:'Advanced', hard:'Hard', expert:'Expert'}) + (g.mode === 'competitive' ? choice('Boards', 'sdSet', 'boards', g.boards, {same:'Everyone races the same board', each:'Each player gets a random board'}) : '') + (g.mode !== 'zen' ? choice('Mistakes', 'sdSet', 'lives', g.lives, {0:'Unlimited (time penalty)', 3:'3 lives — out on the 3rd'}) : '') + (g.bank ? `<p>${g.bank[g.difficulty].fresh} of ${g.bank[g.difficulty].total} boards at this level are new to everyone here.</p>` : '');
+      case 'connect4': {
+        const c = g.cfg || {};
+        return choice('Format', 'c4Set', 'format', c.format, {duels:'Duels: everyone paired up at once', teams:'Teams: Red vs Yellow', bot:'Everyone vs the computer'})
+          + choice('Board', 'c4Set', 'size', c.size, {'6x5':'6×5 (quick)', '7x6':'7×6 (classic)', '8x7':'8×7', '9x7':'9×7 (big)'})
+          + choice('Win with', 'c4Set', 'connect', c.connect, {4:'4 in a row', 5:'5 in a row'})
+          + choice('Computer', 'c4Set', 'bot', c.bot, {easy:'Easy', medium:'Medium', hard:'Hard'})
+          + choice('Move clock', 'c4Set', 'timer', c.timer, {0:'Off', 15:'15 seconds', 30:'30 seconds', 60:'60 seconds'})
+          + (c.format === 'teams' ? button('c4Shuffle', '🔀 Shuffle teams') + '<p>Players pick Red or Yellow in Play.</p>' : '');
+      }
       case 'minigolf': {
         const c = g.cfg || {}, on = new Set(c.obstacles || []);
         let out = choice('Format', 'mgSet', 'format', c.format, {solo:'Solo (every player for themselves)', best:'Teams: best ball', alternate:'Teams: alternate shot'})
@@ -72,6 +81,8 @@ globalThis.PhoneHost = (() => {
           + choice('After the tee', 'mgSet', 'order', c.order, {far:'Farthest from the cup goes next', near:'Closest to the cup goes next'});
         if (c.format !== 'solo') out += choice('Teams', 'mgSet', 'teams', c.teams, {2:'2 teams', 3:'3 teams', 4:'4 teams'}) + button('mgShuffle', '🔀 Shuffle teams');
         if (c.pace === 'turns') out += choice('Group size', 'mgSet', 'groupSize', c.groupSize, {4:'Up to 4 per group', 5:'Up to 5 per group'});
+        out += choice('World', 'mgSet', 'theme', c.theme, {random:'🎲 Random world', pirate:'🏴‍☠️ Pirate Cove', neon:'🌈 Neon Nights', candy:'🍭 Sugar Rush', jungle:'🌴 Lost Jungle', space:'🚀 Lunar Links', mix:'🌍 Grand Tour (a new world every hole)'})
+          + choice('Trivia holes (putt into the right answer)', 'mgSet', 'trivia', +c.trivia, {0:'Off', 1:'After every hole', 2:'After every 2nd hole', 3:'After every 3rd hole'});
         out += choice('Obstacles', 'mgSet', 'obsMode', c.obsMode, {chosen:'Only the ones ticked below', surprise:'Surprise me (random every hole)'})
           + choice('How many per hole', 'mgSet', 'amount', c.amount, {few:'A few', some:'Some', lots:'Lots'});
         if (c.obsMode === 'chosen') out += button('mgRandomObs', '🎲 Random obstacle pick') + (g.obstacles || []).map(o => toggle(`${o.emoji} ${o.name}: ${o.blurb}`, 'mgSet', 'obs:' + o.id, on.has(o.id))).join('');
@@ -141,6 +152,11 @@ globalThis.PhoneHost = (() => {
         if (['lobby','gameover'].includes(ph)) out += button('bsStart','Deal & start');
         if (ph !== 'lobby') out += button('bsLobby','Return to lobby',{},true);
         break;
+      case 'connect4':
+        if (['lobby','done'].includes(ph)) out += button('c4Start', ph === 'done' ? 'Rematch' : 'Start');
+        if (ph === 'playing') out += button('c4End', 'End round', {}, true);
+        if (ph === 'done') out += button('c4Lobby', 'Change settings') + button('c4Reset', 'Reset standings', {}, true);
+        break;
       case 'minigolf':
         if (['lobby','done'].includes(ph)) out += button('mgStart', ph === 'done' ? 'Play a new course' : 'Tee off ⛳');
         if (ph === 'playing') out += button('mgSkip', 'Pick up for the player who\'s up') + button('mgEnd', 'End game', {}, true);
@@ -178,9 +194,9 @@ globalThis.PhoneHost = (() => {
     const editing = box.contains(document.activeElement) && document.activeElement.matches('select, textarea, input:not([type=checkbox])');
     if (sHTML !== settingsHTML && !inflight && !editing) { box.innerHTML = sHTML; settingsHTML = sHTML; }
     const html = controls(s);
-    if ($('ph-actions').innerHTML !== html) $('ph-actions').innerHTML = html;
+    if ($('ph-actions')._html !== html) { $('ph-actions').innerHTML = html; $('ph-actions')._html = html; }
     const roster = s.players.map(p=>`<div class="ph-player"><span>${esc(p.name)}${p.pid===getPid() ? ' (you)' : ''}${p.connected===false ? ' · reconnecting' : ''}</span>${s.game==='mafia' && g.phase==='lobby' ? button('mafiaSetModerator',g.moderatorPid===p.pid ? 'Moderator ✓' : 'Make moderator',{pid:p.pid}) : ''}${p.pid!==getPid() ? button('kick','Remove',{pid:p.pid},true) : ''}</div>`).join('');
-    if ($('ph-roster').innerHTML !== roster) $('ph-roster').innerHTML = roster;
+    if ($('ph-roster')._html !== roster) { $('ph-roster').innerHTML = roster; $('ph-roster')._html = roster; }
     if (document.activeElement !== $('ph-game')) $('ph-game').value = s.game || '';
   }
   // Actions run one after another (never dropped). Only the control that was
@@ -211,7 +227,7 @@ globalThis.PhoneHost = (() => {
       <section id="ph-panel" class="ph-panel" aria-labelledby="ph-title" hidden><div class="ph-content">
         <h2 id="ph-title" tabindex="-1">Your game night</h2><p id="ph-count"></p>
         <p id="ph-error" role="alert"></p>
-        <details><summary>Invite players</summary><p>Share this player link:</p><input id="ph-link" readonly aria-label="Player join link"><button type="button" id="ph-copy">Copy player link</button><p>Room <strong id="ph-code"></strong></p><img id="ph-qr" alt="Scan to join as a player" width="180" height="180"></details>
+        <details><summary>Invite players</summary><p>Share this player link:</p><input id="ph-link" readonly aria-label="Player join link"><button type="button" id="ph-copy">Copy player link</button><img id="ph-qr" alt="Scan to join as a player" width="180" height="180"></details>
         <label class="ph-game-label">Game<select id="ph-game"><option value="">Game menu</option></select></label>
         <h3 id="ph-current"></h3><div id="ph-actions" class="ph-actions"></div>
         <details open><summary>Game settings</summary><div id="ph-settings"></div></details>
@@ -240,7 +256,7 @@ globalThis.PhoneHost = (() => {
     $('ph-auth').hidden=true;
     games=(await request('/games')).games.filter(g=>g.status==='ready');
     $('ph-game').insertAdjacentHTML('beforeend',games.map(g=>`<option value="${g.id}">${esc(g.id==='wii-sandbox' ? 'Target Practice (touch)' : g.name)}</option>`).join(''));
-    const share = async()=>{try{const w=await request('/whoami');$('ph-link').value=w.playUrl;$('ph-code').textContent=w.code;const image=$('ph-qr');if(image.dataset.url!==w.playUrl){image.src='/phoneQR.png?v='+Date.now();image.dataset.url=w.playUrl}}catch(e){$('ph-error').textContent=e.message}};
+    const share = async()=>{try{const w=await request('/whoami');$('ph-link').value=w.playUrl;const image=$('ph-qr');if(image.dataset.url!==w.playUrl){image.src='/phoneQR.png?v='+Date.now();image.dataset.url=w.playUrl}}catch(e){$('ph-error').textContent=e.message}};
     await share(); setInterval(share,10000);
     $('ph-copy').onclick=()=>run(async()=>{try{await navigator.clipboard.writeText($('ph-link').value);$('ph-copy').textContent='Copied!'}catch(e){$('ph-link').focus();$('ph-link').select();$('ph-error').textContent='Select and copy the player link above.'}});
     $('ph-game').onchange=()=>run(async()=>{const game=$('ph-game').value||null;if(latest?.game && game!==latest.game && !confirm('Changing games ends the current game. Continue?')){$('ph-game').value=latest.game;return}await request('/select',{game});settingsHTML=''},$('ph-game'));

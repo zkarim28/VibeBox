@@ -41,6 +41,7 @@ No dependencies: Python 3 stdlib on the server, plain HTML/JS/CSS on the pages
 | `start-online.sh` | Non-interactive start for boot. Forces `MODE=public GUI=0 NO_HTTPS=1`, waits up to 3 min for the internet, runs `server.py`. If the tunnel fails, the server would fall back to LAN-only. The script watches for that ("running LOCAL instead"), kills the server and exits 1 so systemd retries. |
 | `deploy/vibebox-online.service` | systemd user unit for `start-online.sh` (`Restart=always`, 20 s back-off, no start limit). Installed copy: `~/.config/systemd/user/`. |
 | `deploy/vibebox-watchdog.{sh,service,timer}` | Every 2 min, checks `127.0.0.1:8000/sudoku` and the current tunnel link (read from this run's journal). 3 bad checks in a row (e.g. Cloudflare ERROR 1033, tunnel lost) → `systemctl --user restart vibebox-online`, which opens a new tunnel and pushes the new link to ntfy. Skips the first 4 min after a start and does nothing while the internet itself is down. Logs: `journalctl --user -u vibebox-watchdog -o cat`. |
+| `deploy/publish-link.sh` | Permanent address: `https://zkarim28.github.io/vibebox/` (a page in the portfolio repo) reads `vibebox/link.json`, checks `<tunnel>/ping` (CORS-enabled route in server.py) and redirects; `#/sudoku` etc. passes a path through. With `PUBLISH_LINK=1` in .env, `_notify_startup` runs this script on every new public URL. It uses its own clone (`~/.local/share/vibebox/site-bot`, over SSH), does `fetch` + `reset --hard origin/main`, rewrites only link.json, commits and pushes, and on a rejected push refetches and retries, so merge conflicts can't happen. GitHub Pages takes ~1 min to deploy; the page keeps retrying meanwhile. |
 | `launcher.py` + `setup-launcher.sh` | Password-gated control panel on `127.0.0.1:8790`, exposed with `tailscale funnel`. Each "start" spawns `server.py` with `MODE=public`, a free port from 8000-8019, its own room code and host token. Tracks them in `~/.vibebox-launcher/servers.json`; logs in `~/.vibebox-launcher/logs/`. |
 | `gui.py` | Optional Tk control window for interactive local runs. |
 
@@ -146,13 +147,13 @@ every page ──GET /state?pid=N──► public_state(for_pid)
 | `/games` | the `GAMES` catalog |
 | `/state[?pid=]` | `public_state()`; also the player heartbeat |
 | `/events` | server-sent events stream of public state (clients currently poll `/state` instead) |
-| `/whoami`, `/config`, `/amihost`, `/phoneQR.png` | links, room code, host check, QR |
+| `/whoami`, `/config`, `/amihost`, `/phoneQR.png` | links, host check, QR |
 | `/<CODE>` | short join link → `/play?code=…` |
 | `/sudoku[?t=<table>]` | the open Sudoku landing page |
 
 | POST | |
 |---|---|
-| `/join` | name + room code → `{pid, token}` (rate-limited per IP) |
+| `/join` | name → `{pid, token}` (no room code since Oct 2026) (rate-limited per IP) |
 | `/resume` | pid + token → rejoin after reload |
 | `/unlock` | host password → sets host cookie (rate-limited) |
 | `/input` | every game action |
@@ -183,7 +184,7 @@ every page ──GET /state?pid=N──► public_state(for_pid)
 | `static/controller.html` | Join form, then one container per game (`#scat`, `#bs`, `#sudoku`, …). `setView(game)` toggles them; `pollState()` (also the heartbeat) dispatches to the game's renderer; `s_poll_delay()` sets per-game poll speed (300-700 ms). `send(action, extra)` adds `pid` and `token`. |
 | `static/phone-host.js` | Only active on `/host/play`. Adds the "Host controls" tab: unlock gate, game picker, per-game **settings** (`settings()` uses the `number` / `toggle` / `choice` / `textSetting` helpers) and **buttons** (`controls()`), roster with kick. Settings forms post `{action, key, value}`. |
 | `static/results.js` | `VibeResults.fromState()`: shared leaderboard panel for phones. |
-| `static/bs.js`, `static/sudoku.js`, `static/minigolf.js` | **Self-contained game views** (see §5). |
+| `static/bs.js`, `static/sudoku.js`, `static/minigolf.js`, `static/connect4.js` | **Self-contained game views** (see §5). |
 | `static/theme.css` | Shared look plus the newer games' styles (`.bs-*`, `.sd-*`). Older games keep their CSS inline in host/controller HTML. |
 
 ---
@@ -195,7 +196,7 @@ Imposter, Mafia, Ludo, Word Hunt): `fresh_x()`, `_x_public()`, `do_x()`
 live inside `server.py`; markup, CSS and JS live inside `host.html` and
 `controller.html`.
 
-**Newer, modular games** (BS, Sudoku, Mini Golf): this is the pattern to copy.
+**Newer, modular games** (BS, Sudoku, Mini Golf, Connect 4): this is the pattern to copy.
 
 ```
 game.py               fresh() · act(g, players, pid, action, data) · public(g, players, pid) · tick/expire(g)
@@ -332,12 +333,55 @@ sudoku-home.html ──POST /sd/*──► Handler._sudoku_tables ──► TABL
   balls are in/picked up and stopped (players who left get the limit), shows
   the scorecard `HOLE_PAUSE` s, then the next hole or `_finish` (lowest total,
   room points 100×(n−place+1)).
+* **Trivia holes:** phases `hole → trivia → treveal → next hole` when
+  `cfg.trivia` (0/1/2/3 = off / every Nth hole) says so. `make_trivia_hole`
+  builds a full-width hole with one cup per answer (`hole["cups"]`, lane
+  dividers as extra wall segments); `simulate` sinks into the nearest cup and
+  reports `cup`. `_cur_hole(g)` returns the trivia hole during those phases.
+  Everyone putts at once (`TRIVIA_STROKES` each, `TRIVIA_TIME` limit); choices
+  stay hidden in `public()` until `_reveal_trivia` scores them
+  (`trivia_points`). Questions: `minigolf_trivia.py`. Coins
+  live in `hole["coins"]`; `g["coinsTaken"][i] = {by, at}` (at = the moment the
+  ball reaches it on screen). Pinball points: `simulate` emits events with a
+  position, `_shot` scores them with a combo multiplier (`SCORE`, `SINK_PTS`,
+  `MAX_MULT`) into `side["points"]`; `points_standings()` is the second board.
+  Trampolines give the ball height `z` (frames become `[x, y, z]`): airborne
+  balls skip friction/hazards/obstacles and clear rails above `RAIL_H`.
+  Themes (`THEMES`, `cfg.theme`, per-hole `hole["theme"]`) are cosmetic.
 * `public()` sends only the current hole's cells/walls/obstacles, and shot
   frames only while that shot is animating (≈ 3–8 KB per poll).
 * View: `GolfView.render(el, state, pid, send, isHost)`; a cached static layer
   (sea, fairway, rails, cup, static obstacles) plus a per-frame dynamic layer,
   cropped to each hole's bounding box. A 3D renderer could reuse the engine
   unchanged (the sim is 2D; heights would be cosmetic).
+
+## 6d. Connect 4 specifics
+
+* `connect4.py` (prefix `c4`, game id and state key `connect4`). Phases
+  `lobby → playing → done`; `c4Start` again is a rematch. `cfg` (format,
+  size, connect, bot, timer), `teamOf`, `record` (W/D/L) and `met` (pairing
+  history) survive rematches; `do_select` keeps cfg + teams, drops the rest.
+* **Formats:** `duels` pairs everyone at once (fewest previous meetings first,
+  odd one out vs the computer), `teams` is one Red-vs-Yellow match with
+  droppers rotating per side, `bot` gives every player their own match.
+  Each match: `board[col][row]` bottom-up (0/1 red/2 yellow), `sides[0]` is
+  red and moves first (sides are shuffled at deal).
+* **The computer** is a bitboard negamax with alpha-beta, a transposition
+  table and iterative deepening (`_Solver`), capped at `BOT_BUDGET` seconds.
+  It always takes a win / blocks a four first; Easy/Medium then play randomly
+  some of the time (`BOT_SLOPPY`). The search runs on a **thread** with a
+  board snapshot (`_bot_pick`) so the server lock isn't held while it thinks;
+  `tick()` applies the answer. `/state` polls call `connect4.tick()` too, so a
+  bot reply lands within one poll (~0.9 s total incl. `BOT_DELAY`). Tests set
+  `SYNC_BOT = True`.
+* `tick()` also runs the move clock (expired → an Easy-bot move for that
+  player, `m["auto"]` explains it), hands a departed player's seat to the
+  computer, and seats late joiners on the smaller team in team games.
+* Room points: win 100, draw 40, beating the computer 50/100/200 by level.
+* View: `C4View.render(el, state, pid, send, isHost)`. Each match has its own
+  wrapper and each part (status / players / board) its own cached markup, so
+  the clock ticking or a move on another board never rebuilds a board, which
+  would replay the CSS drop animation (`.c4-drop`, `--fall`).
 
 ## 7. Persistence (everything else is in memory)
 
@@ -374,6 +418,11 @@ Tests reset `server.state` from a deep copy in `setUp`. Sudoku tests point
 * The HTTPS twin (8443) collides between instances; anything scripted should
   set `NO_HTTPS=1`, as the launcher and `start-online.sh` do.
 * Static files need explicit routes in `Handler.do_GET`.
+* Never compare `node.innerHTML !== html` to decide whether to re-render: the
+  browser re-serialises markup (`&#39;` → `'`), so it never matches and the
+  node is rebuilt every poll, which snaps open `<select>`s shut. Cache the
+  string you wrote (`setHTML` in sudoku.js / minigolf.js / connect4.js does this, and also
+  skips a rebuild while a field inside has focus).
 * Game lists are repeated in several places: `controller.html`
   `setView()`'s "waiting" list, `host.html`'s redirect guard, and the
   `hostMode` key map. Miss one and the page bounces to the menu or shows

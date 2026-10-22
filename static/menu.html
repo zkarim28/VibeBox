@@ -196,7 +196,6 @@
       <aside class="join" aria-labelledby="join-heading">
         <h2 id="join-heading" class="label" style="margin-bottom:.5rem">Players join at</h2>
         <p class="url" id="join-url">…</p>
-        <p class="codechip">Room code <b id="join-code">····</b></p>
         <img class="qr" id="qr" src="/phoneQR.png" alt="QR code linking to the player controller page">
         <p class="count" id="count" aria-live="polite">No players connected yet</p>
         <div id="roster"></div>
@@ -304,9 +303,8 @@ async function refreshAddress() {
   try {
     const w = await (await fetch("/whoami", { cache: "no-store" })).json();
     $("join-url").textContent = w.playUrl.replace(/^https?:\/\//, "").replace(/\?.*$/, "");
-    $("join-code").textContent = w.code;
     $("footer").textContent = w.public
-      ? "Public mode: anyone with the link AND the room code can join."
+      ? "Public mode: anyone with the link can join."
       : "Runs on this laptop over your local WiFi. No accounts.";
     if (shownUrl !== null && w.playUrl !== shownUrl) {
       $("qr").src = "/phoneQR.png?v=" + Date.now();

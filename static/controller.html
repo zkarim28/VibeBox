@@ -558,13 +558,10 @@
     <p class="eyebrow">YOUR SEAT AT GAME NIGHT</p>
     <p class="join-intro">One phone. All the fun.</p>
     <input id="name" aria-label="Your name" type="text" placeholder="Your name" autocomplete="off"
-           autocapitalize="words" maxlength="14" enterkeyhint="next">
-    <input id="code" aria-label="Room code" type="text" placeholder="Room code" autocomplete="off"
-           autocapitalize="characters" autocorrect="off" spellcheck="false"
-           maxlength="6" enterkeyhint="go" style="letter-spacing:0.25em;text-transform:uppercase">
+           autocapitalize="words" maxlength="14" enterkeyhint="go">
     <button id="join-btn">Join game</button>
     <div class="err" id="err"></div>
-    <p class="join-alt"><a href="/sudoku">No room code? Play Sudoku →</a></p>
+    <p class="join-alt"><a href="/sudoku">Just want Sudoku? Play here →</a></p>
   </div>
 
   <div id="waiting" hidden>
@@ -914,6 +911,7 @@
   <div id="bs" class="bs-view" hidden></div>
   <div id="sudoku" class="sd-view" hidden></div>
   <div id="minigolf" class="mg-view" hidden></div>
+  <div id="connect4" class="c4-view" hidden></div>
   <div id="ludo" hidden>
     <div class="lu-you" id="lu-you"></div>
     <div class="lu-status" id="lu-status"></div>
@@ -1022,6 +1020,7 @@
 <script src="/bs.js"></script>
 <script src="/sudoku.js"></script>
 <script src="/minigolf.js"></script>
+<script src="/connect4.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -1060,7 +1059,7 @@ let phoneOnly = false;
 let myName = "", currentGame = undefined;
 
 // ---- staying the same player across a disconnect ----
-// The server hands us {pid, token} on join; we stash it (per room code) so a
+// The server hands us {pid, token} on join; we stash it (per server run) so a
 // reload / crash / WiFi drop / phone-lock can re-attach as the same player,
 // keeping our name, colour, score and team.
 const _qs0 = new URLSearchParams(location.search);
@@ -1068,7 +1067,7 @@ let ROOM = (_qs0.get("code") || "").slice(0, 6).toUpperCase();
 let IDKEY = ROOM ? "pg:" + ROOM : "pg:_";
 function saveId()  {
   try {
-    // one room at a time — drop any id saved for a previous room code
+    // one server run at a time — drop any id saved for a previous run
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
       if (k && k.startsWith("pg:") && k !== IDKEY) localStorage.removeItem(k);
@@ -1108,19 +1107,16 @@ function tryResume() {
 
 // ---- joining ----
 const JOIN_ERRORS = {
-  bad_code: "That room code isn't right.",
   full: "The game is full right now.",
   rate_limited: "Too many tries — wait a minute and retry.",
 };
 async function join() {
   const name = $("name").value.trim();
-  const code = $("code").value.trim().toUpperCase();
   $("err").textContent = "";
-  if (!code) { $("err").textContent = "Enter the room code from your host."; return; }
   try {
     const r = await fetch("/join", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, code })
+      body: JSON.stringify({ name })
     });
     const d = await r.json();
     if (!d || !d.pid) {
@@ -1139,13 +1135,10 @@ async function join() {
   }
 }
 $("join-btn").addEventListener("click", join);
-$("name").addEventListener("keydown", (e) => { if (e.key === "Enter") $("code").focus(); });
-$("code").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
+$("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
 
-// the QR link is /play?code=XXXX — prefill it so a scan is one tap.
 // ?name=Foo also prefills the name and auto-joins (quick-rejoin bookmark).
 const _qs = new URLSearchParams(location.search);
-if (_qs.get("code")) $("code").value = _qs.get("code").slice(0, 6).toUpperCase();
 
 // just kicked by the host? say so on the join screen.
 try {
@@ -1175,7 +1168,6 @@ if (_qs.get("pid") && _qs.get("token")) {
   const hostCode = await PhoneHost.init(() => pid);
   if (hostCode) {
     ROOM = hostCode; IDKEY = "pg:" + ROOM;
-    $("code").value = ROOM;
   }
   // already played on this phone? slip straight back into our old seat.
   if (await tryResume()) { $("waiting").hidden = false; startLoops(); return; }
@@ -1196,9 +1188,10 @@ function setView(game) {
   $("bs").hidden = game !== "bs";
   $("sudoku").hidden = game !== "sudoku";
   $("minigolf").hidden = game !== "minigolf";
+  $("connect4").hidden = game !== "connect4";
   $("ludo").hidden = game !== "ludo";
   $("wordhunt").hidden = game !== "word-hunt";
-  $("waiting").hidden = ["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs", "sudoku", "minigolf"].includes(game);
+  $("waiting").hidden = ["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs", "sudoku", "minigolf", "connect4"].includes(game);
   if (game !== "blackbox") { bbShownSection = null; bbFanIds = ""; }
   if (game === "wii-sandbox" && !phoneOnly) wiiEnsureLoop();
   else wiiMaybeGoHome(game);   // left Wii on the https twin? go back to :8000
@@ -1243,7 +1236,7 @@ function scBuildForm(cats, letter) {
       <label for="sc-in-${i}"><b>${String(i + 1).padStart(2, "0")}</b>${esc(c)}</label>
       <input id="sc-in-${i}" data-i="${i}" type="text" maxlength="80"
              placeholder="${esc(letter || "")}"
-             autocapitalize="none" autocomplete="off" spellcheck="false" enterkeyhint="next">
+             autocapitalize="none" autocomplete="off" spellcheck="false" enterkeyhint="go">
     </div>`).join("");
   $("sc-form").querySelectorAll("input").forEach(inp => {
     inp.addEventListener("input", () => { scDirty = true; scSaveDraft(); scScheduleSend(); });
@@ -2335,6 +2328,7 @@ async function pollState() {
     if (s.game === "bs") BSView.render($("bs"), s, pid, send);
     if (s.game === "sudoku") SudokuView.render($("sudoku"), s, pid, send);
     if (s.game === "minigolf") GolfView.render($("minigolf"), s, pid, send);
+    if (s.game === "connect4") C4View.render($("connect4"), s, pid, send);
     renderPhoneResults(s);
   } catch (e) {
     if (pid) $("conn").hidden = false;   // network dropped — we'll keep retrying
@@ -2345,6 +2339,7 @@ function s_poll_delay() {
   if (currentGame === "bs") return 350;
   if (currentGame === "sudoku") return 400;
   if (currentGame === "minigolf") return 400;
+  if (currentGame === "connect4") return 350;
   if (currentGame === "scattergories" && scPhase === "review") return 700;
   if (currentGame === "taboo" && (tbPhase === "turn" || tbPhase === "ready")) return 350;
   if (currentGame === "blackbox" && bbPhase === "judge") return 350;

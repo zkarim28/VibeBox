@@ -126,7 +126,19 @@ globalThis.SudokuView = (() => {
     root.querySelector('.sd-error').textContent = error || (g.message && g.phase === 'playing' ? g.message : '');
   }
 
-  function setHTML(node, html) { if (node.innerHTML !== html) node.innerHTML = html; }
+  // Compare against the markup we last wrote, not innerHTML (the browser
+  // re-serialises it, so that never matched and panels were rebuilt every
+  // poll, closing open dropdowns). Skip while a field in it is in use, and
+  // keep <details> open/closed as the player left them.
+  function setHTML(node, html) {
+    if (node._sdHTML === html) return;
+    const ae = document.activeElement;
+    if (ae && node.contains(ae) && ae.matches('select, textarea, input:not([type=checkbox])')) return;
+    const open = new Set([...node.querySelectorAll('details')].filter(d => d.open).map(d => d.className));
+    const shut = new Set([...node.querySelectorAll('details')].filter(d => !d.open).map(d => d.className));
+    node.innerHTML = html; node._sdHTML = html;
+    node.querySelectorAll('details').forEach(d => { if (open.has(d.className)) d.open = true; else if (shut.has(d.className)) d.open = false; });
+  }
 
   function value(b, i) { return pending[i] ? String(pending[i]) : b.cells[i]; }
 
@@ -192,7 +204,7 @@ globalThis.SudokuView = (() => {
     const msgs = g.chat || [];
     const html = msgs.map(m => `<li><b style="color:${esc(m.color)}">${esc(m.name)}</b>${m.spoiler ? ' <span class="sd-spoil" title="Sent by someone who can see the solution">👀</span>' : ''} ${esc(m.text)}</li>`).join('');
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
-    if (log.innerHTML !== html) { log.innerHTML = html; if (atBottom) log.scrollTop = log.scrollHeight; }
+    if (log._sdHTML !== html) { log.innerHTML = html; log._sdHTML = html; if (atBottom) log.scrollTop = log.scrollHeight; }
     root.querySelector('.sd-chatcount').textContent = msgs.length ? `(${msgs.length})` : '';
     let note = '';
     if (g.spoilerHidden) note = 'Messages from spectators are hidden until you finish, so nobody can give away answers.';
@@ -394,7 +406,7 @@ globalThis.SudokuView = (() => {
 
   function onChange(e) {
     const sel = e.target.closest('[data-set]');
-    if (sel) run('sdSet', {key: sel.dataset.set, value: sel.value}, true);
+    if (sel) { sel.blur(); run('sdSet', {key: sel.dataset.set, value: sel.value}, true); }
   }
 
   document.addEventListener('keydown', e => {

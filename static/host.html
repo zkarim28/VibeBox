@@ -574,7 +574,6 @@
     <img data-qr src="/phoneQR.png" alt="Scan this QR code to join the game" width="160" height="160">
     <div class="host-join-info">
       <p class="eyebrow">JOIN GAME NIGHT</p>
-      <p class="host-join-code">Room <strong data-join-code>····</strong></p>
       <p class="host-join-url" data-join-url>Loading join link…</p>
       <p class="host-join-hint">Scan with your phone</p>
       <a class="host-phone-link" href="/host/play">Host &amp; play</a>
@@ -604,7 +603,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+        <div class="scan">scan it, or type the address</div>
       </div>
 
       <div class="settings">
@@ -685,7 +684,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+        <div class="scan">scan it, or type the address</div>
       </div>
 
       <div class="settings">
@@ -772,7 +771,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+        <div class="scan">scan it, or type the address</div>
       </div>
       <div class="settings">
         <div class="setting">
@@ -835,7 +834,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+        <div class="scan">scan it, or type the address</div>
       </div>
       <div class="settings">
         <div class="setting">
@@ -885,7 +884,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+        <div class="scan">scan it, or type the address</div>
       </div>
       <p class="wii-hint" id="wii-lobby-msg">Waiting for phones…</p>
       <div class="wii-players" id="wii-players"></div>
@@ -902,7 +901,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+        <div class="scan">scan it, or type the address</div>
       </div>
       <div class="settings" style="max-width:520px">
         <div class="setting">
@@ -974,7 +973,7 @@
         <div class="label">On your phone, go to</div>
         <div class="url" data-join-url>…</div>
         <img class="qr" data-qr src="/phoneQR.png" alt="Scan to join">
-        <div class="scan">scan it, or type the address + room code <b data-join-code>····</b></div>
+        <div class="scan">scan it, or type the address</div>
       </div>
       <div class="settings" style="max-width:520px">
         <div class="setting">
@@ -1049,6 +1048,7 @@
   <div id="view-bs" class="bs-view" hidden></div>
   <div id="view-sudoku" class="sd-view" hidden></div>
   <div id="view-minigolf" class="mg-view" hidden></div>
+  <div id="view-connect4" class="c4-view" hidden></div>
   <div id="view-ludo" hidden>
     <h1>Ludo<span></span></h1>
     <div class="lu-wrap">
@@ -1101,6 +1101,7 @@
 <script src="/bs.js"></script>
 <script src="/sudoku.js"></script>
 <script src="/minigolf.js"></script>
+<script src="/connect4.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -1205,7 +1206,7 @@ let lastState = null;
 function render(s) {
   lastState = s;
   renderRoster(s);
-  if (!leaving && !["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs", "sudoku", "minigolf"].includes(s.game)) {
+  if (!leaving && !["scattergories", "taboo", "blackbox", "codenames", "wii-sandbox", "imposter", "mafia", "ludo", "word-hunt", "bs", "sudoku", "minigolf", "connect4"].includes(s.game)) {
     location.href = "/"; return;
   }
   $("view-scat").hidden = s.game !== "scattergories";
@@ -1221,6 +1222,8 @@ function render(s) {
   if (s.game === "sudoku") SudokuView.render($("view-sudoku"), s, null, async (action, extra) => { const r = await post({action, ...extra}); return r?.json(); }, true);
   $("view-minigolf").hidden = s.game !== "minigolf";
   if (s.game === "minigolf") GolfView.render($("view-minigolf"), s, null, async (action, extra) => { const r = await post({action, ...extra}); return r?.json(); }, true);
+  $("view-connect4").hidden = s.game !== "connect4";
+  if (s.game === "connect4") C4View.render($("view-connect4"), s, null, async (action, extra) => { const r = await post({action, ...extra}); return r?.json(); }, true);
   $("view-ludo").hidden = s.game !== "ludo";
   $("view-wordhunt").hidden = s.game !== "word-hunt";
   if (s.game === "scattergories") renderScat(s);
@@ -2425,6 +2428,7 @@ function hostPollDelay() {
   if (s && s.game === "mafia") return 500;
   if (s && s.game === "ludo") return 400;
   if (s && s.game === "minigolf") return 350;
+  if (s && s.game === "connect4") return 350;
   if (s && s.game === "word-hunt" && s.wordhunt && s.wordhunt.phase === "playing") return 350;
   return 550;
 }

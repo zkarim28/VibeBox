@@ -365,7 +365,7 @@ async function refresh(){
     el.innerHTML=`
       <div class="row" style="justify-content:space-between">
         <span class="tag ${live?'live':'wait'}">${live?'live':'starting…'}</span>
-        <span class="muted">up ${ago(s.started)} · ${s.players==null?'—':s.players+' player'+(s.players===1?'':'s')} · code <b>${s.code}</b></span>
+        <span class="muted">up ${ago(s.started)} · ${s.players==null?'—':s.players+' player'+(s.players===1?'':'s')}</span>
       </div>`;
     if(live){
       el.innerHTML+=`

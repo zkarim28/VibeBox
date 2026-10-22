@@ -30,6 +30,10 @@ globalThis.VibeResults = (() => {
         detail: r.toPar === 0 ? 'Even par' : `${r.toPar > 0 ? '+' : ''}${r.toPar} to par`,
         you: mine ? (r.side ? r.side === mine.id : r.team === mine.team) : false })) };
     }
+    if (s.game === 'connect4' && s.connect4?.phase === 'done' && s.connect4.standings?.length) {
+      return { title: 'Connect 4 standings', unit: 'Points', rows: s.connect4.standings.map(r => ({ name: r.name, rank: r.place, score: r.pts,
+        detail: `${r.w}W ${r.d}D ${r.l}L`, you: r.pid === pid })) };
+    }
     if (s.game === 'word-hunt' && s.wordhunt?.phase === 'review') {
       return { title: 'Round leaderboard', unit: 'Points', rows: ranked((s.wordhunt.leaderboard || []).map(p =>
         player(p, p.roundScore, `${p.wordCount} ${p.wordCount === 1 ? 'word' : 'words'} · ${p.total} total`))) };

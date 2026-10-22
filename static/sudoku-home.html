@@ -160,7 +160,7 @@ async function refreshTables() {
   if (!r.ok) return;
   const html = r.tables.map(t => `<li><b>${esc(t.name)}</b><button class="btn" type="button" data-join="${esc(t.id)}">${t.phase === 'playing' ? 'Join / watch' : 'Join'}</button>
     <span>${MODES[t.mode]} · ${LEVELS[t.difficulty]} · ${t.people} here · ${t.phase === 'playing' ? `round in progress (${t.playing} playing)` : t.phase === 'done' ? 'between rounds' : 'waiting to start'}</span></li>`).join('');
-  if ($('tables').innerHTML !== html) $('tables').innerHTML = html;
+  if ($('tables')._html !== html) { $('tables').innerHTML = html; $('tables')._html = html; }
 }
 
 async function enter(id) {
@@ -191,7 +191,7 @@ async function poll() {
   const t = r.table;
   $('t-title').textContent = t.name;
   const people = t.people.map(p => `<span><b style="color:${esc(p.color)}">●</b> ${esc(p.name)}${p.mid === t.you ? ' (you)' : ''}${p.owner ? ' · owner' : ''}${!p.seated && r.sudoku.phase === 'playing' ? ' · watching' : ''}</span>`).join('');
-  if ($('people').innerHTML !== people) $('people').innerHTML = people;
+  if ($('people')._html !== people) { $('people').innerHTML = people; $('people')._html = people; }
   $('listed-wrap').hidden = !t.isOwner;
   if (document.activeElement !== $('listed')) $('listed').checked = t.listed;
   SudokuView.render($('board'), {sudoku: r.sudoku}, t.you, send, false, {controls: t.isOwner});
